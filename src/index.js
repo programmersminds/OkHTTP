@@ -6,6 +6,19 @@ const { TLSSecurityModule } = NativeModules;
 
 let tls13Initialized = false;
 
+// Auto-initialize TLS 1.3 on module load
+(async () => {
+  if (!tls13Initialized && Platform.OS === 'android' && TLSSecurityModule) {
+    try {
+      await TLSSecurityModule.updateSecurityProvider();
+      await TLSSecurityModule.forceTLS13();
+      tls13Initialized = true;
+    } catch (e) {
+      console.warn('TLS 1.3 auto-initialization failed:', e.message);
+    }
+  }
+})();
+
 export const isTLSModuleAvailable = () => {
   return Platform.OS === 'android' && TLSSecurityModule != null;
 };
@@ -99,11 +112,10 @@ export const tls13Axios = createSecureHttpClient({
 
 const originalRequest = tls13Axios.request.bind(tls13Axios);
 tls13Axios.request = async function(config) {
-  await initializeTLS13Axios();
   const monitor = MonitoringManager.getInstance();
   if (monitor) {
     config._requestStartTime = Date.now();
-    config._requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    config._requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     monitor.performance.startOperation(config._requestId);
   }
   
@@ -143,7 +155,7 @@ const createSecureHttpClientWithMonitoring = (config = {}) => {
     const originalRequest = client.request.bind(client);
     client.request = async function(requestConfig) {
       requestConfig._requestStartTime = Date.now();
-      requestConfig._requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      requestConfig._requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
       monitor.performance.startOperation(requestConfig._requestId);
       
       try {

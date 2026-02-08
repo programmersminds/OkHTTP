@@ -24,12 +24,20 @@ See [COMPATIBILITY.md](./COMPATIBILITY.md) for detailed version support.
 ## Installation
 
 ```bash
-npm install git+https://github.com/YOUR_USERNAME/react-native-secure-http.git
+npm install git+https://github.com/osarinmwian/secure-http.git
 # or
-yarn add git+https://github.com/YOUR_USERNAME/react-native-secure-http.git
+yarn add git+https://github.com/osarinmwian/secure-http.git
+```
+
+### iOS Setup
+
+```bash
+cd ios && pod install && cd ..
 ```
 
 ## Setup
+
+### Android Setup
 
 ### iOS
 
@@ -64,7 +72,7 @@ class MainApplication : Application(), ReactApplication {
 
 ```gradle
 include ':react-native-secure-http'
-project(':react-native-secure-http').projectDir = new File(rootProject.projectDir, '../node_modules/@keymobile/react-native-secure-http/src/android')
+project(':react-native-secure-http').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-secure-http/src/android')
 ```
 
 3. In `android/app/build.gradle`, add:
@@ -77,33 +85,25 @@ dependencies {
 
 ### React Native 0.60+ (Autolinking)
 
-For React Native 0.60+, the library will autolink. Just run:
+For React Native 0.60+, iOS will autolink automatically after pod install.
+
+### Optional: Screenshot Support
+
+For error screenshot capture:
 
 ```bash
+npm install react-native-view-shot
 cd ios && pod install
 ```
 
 ## Usage
 
-### 1. Initialize in App.js
+### 1. Use tls13Axios (TLS 1.3 Auto-Enabled)
 
 ```javascript
-import { initializeTLS13Axios } from '@keymobile/react-native-secure-http';
+import { tls13Axios } from 'react-native-secure-http';
 
-function App() {
-  useEffect(() => {
-    initializeTLS13Axios();
-  }, []);
-  
-  return <YourApp />;
-}
-```
-
-### 2. Use tls13Axios (Recommended)
-
-```javascript
-import { tls13Axios } from '@keymobile/react-native-secure-http';
-
+// TLS 1.3 is automatically enabled - just use it!
 // GET request
 const response = await tls13Axios.get('https://api.example.com/user');
 
@@ -114,10 +114,28 @@ const data = await tls13Axios.post('https://api.example.com/user', {
 });
 ```
 
+### 2. Initialize Monitoring (Optional)
+
+```javascript
+import { initializeMonitoring } from 'react-native-secure-http';
+
+function App() {
+  useEffect(() => {
+    initializeMonitoring({
+      endpoint: 'https://your-telemetry.com/track',
+      appVersion: '1.0.0',
+      enabled: !__DEV__
+    });
+  }, []);
+  
+  return <YourApp />;
+}
+```
+
 ### 3. Custom Client
 
 ```javascript
-import { createSecureHttpClient } from '@keymobile/react-native-secure-http';
+import { createSecureHttpClient } from 'react-native-secure-http';
 
 const apiClient = createSecureHttpClient({
   baseURL: 'https://api.example.com',
@@ -134,7 +152,7 @@ import {
   checkSecurityProviders, 
   testTLS13Support,
   isTLSModuleAvailable 
-} from '@keymobile/react-native-secure-http';
+} from 'react-native-secure-http';
 
 if (isTLSModuleAvailable()) {
   const providers = await checkSecurityProviders();
@@ -152,7 +170,7 @@ See [USAGE_EXAMPLES.js](./USAGE_EXAMPLES.js) for more examples.
 Built-in Microsoft Application Insights-style telemetry:
 
 ```javascript
-import { initializeMonitoring, getMonitoring } from '@keymobile/react-native-secure-http';
+import { initializeMonitoring, getMonitoring } from 'react-native-secure-http';
 
 // Initialize
 initializeMonitoring({
@@ -176,13 +194,8 @@ getMonitoring().trackException(error, { context: 'payment' });
 
 See [MONITORING.md](./MONITORING.md) for complete documentation.
 
-## Publish to GitHub
+## Repository
 
-```bash
-cd ~/Documents/react-native-secure-http
-git init
-git add .
-git commit -m "Initial commit"
-git remote add origin https://github.com/YOUR_USERNAME/react-native-secure-http.git
-git push -u origin main
+```
+https://github.com/osarinmwian/secure-http
 ```
