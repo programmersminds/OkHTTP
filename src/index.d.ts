@@ -1,6 +1,6 @@
 export interface HttpRequestConfig {
   url?: string;
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+  method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
   baseURL?: string;
   headers?: Record<string, string>;
   data?: any;
@@ -19,20 +19,55 @@ export interface MonitoringConfig {
 }
 
 export interface TelemetryClient {
-  trackEvent(name: string, properties?: Record<string, any>, measurements?: Record<string, number>): void;
-  trackMetric(name: string, value: number, properties?: Record<string, any>): void;
+  trackEvent(
+    name: string,
+    properties?: Record<string, any>,
+    measurements?: Record<string, number>,
+  ): void;
+  trackMetric(
+    name: string,
+    value: number,
+    properties?: Record<string, any>,
+  ): void;
   trackException(error: Error, properties?: Record<string, any>): void;
-  trackRequest(name: string, url: string, duration: number, responseCode: number, success: boolean, properties?: Record<string, any>): void;
-  trackDependency(name: string, type: string, target: string, duration: number, success: boolean, resultCode: number, properties?: Record<string, any>): void;
-  trackTrace(message: string, severity?: string, properties?: Record<string, any>): void;
+  trackRequest(
+    name: string,
+    url: string,
+    duration: number,
+    responseCode: number,
+    success: boolean,
+    properties?: Record<string, any>,
+  ): void;
+  trackDependency(
+    name: string,
+    type: string,
+    target: string,
+    duration: number,
+    success: boolean,
+    resultCode: number,
+    properties?: Record<string, any>,
+  ): void;
+  trackTrace(
+    message: string,
+    severity?: string,
+    properties?: Record<string, any>,
+  ): void;
   flush(): Promise<void>;
   dispose(): void;
 }
 
 export interface MonitoringManager {
   telemetry: TelemetryClient;
-  trackEvent(name: string, properties?: Record<string, any>, measurements?: Record<string, number>): void;
-  trackMetric(name: string, value: number, properties?: Record<string, any>): void;
+  trackEvent(
+    name: string,
+    properties?: Record<string, any>,
+    measurements?: Record<string, number>,
+  ): void;
+  trackMetric(
+    name: string,
+    value: number,
+    properties?: Record<string, any>,
+  ): void;
   trackException(error: Error, properties?: Record<string, any>): void;
   setScreenshotView(ref: any): void;
   captureScreenshot(): Promise<string | null>;
@@ -49,8 +84,15 @@ export interface HttpResponse<T = any> {
 }
 
 export interface HttpInterceptors {
-  request: Array<(config: HttpRequestConfig) => HttpRequestConfig | Promise<HttpRequestConfig>>;
-  response: Array<(response: HttpResponse) => HttpResponse | Promise<HttpResponse>>;
+  request: Array<
+    (
+      config: HttpRequestConfig,
+    ) => HttpRequestConfig | Promise<HttpRequestConfig>
+  >;
+  response: Array<
+    (response: HttpResponse) => HttpResponse | Promise<HttpResponse>
+  >;
+  error: Array<(error: any) => Promise<any>>;
 }
 
 export class SecureHttpClient {
@@ -60,13 +102,35 @@ export class SecureHttpClient {
   interceptors: HttpInterceptors;
 
   constructor(config?: HttpRequestConfig);
-  
+
+  create(config?: HttpRequestConfig): SecureHttpClient;
+  static isCancel(error: any): boolean;
+  isCancel(error: any): boolean;
+
   request<T = any>(config: HttpRequestConfig): Promise<HttpResponse<T>>;
-  get<T = any>(url: string, config?: HttpRequestConfig): Promise<HttpResponse<T>>;
-  post<T = any>(url: string, data?: any, config?: HttpRequestConfig): Promise<HttpResponse<T>>;
-  put<T = any>(url: string, data?: any, config?: HttpRequestConfig): Promise<HttpResponse<T>>;
-  delete<T = any>(url: string, config?: HttpRequestConfig): Promise<HttpResponse<T>>;
-  patch<T = any>(url: string, data?: any, config?: HttpRequestConfig): Promise<HttpResponse<T>>;
+  get<T = any>(
+    url: string,
+    config?: HttpRequestConfig,
+  ): Promise<HttpResponse<T>>;
+  post<T = any>(
+    url: string,
+    data?: any,
+    config?: HttpRequestConfig,
+  ): Promise<HttpResponse<T>>;
+  put<T = any>(
+    url: string,
+    data?: any,
+    config?: HttpRequestConfig,
+  ): Promise<HttpResponse<T>>;
+  delete<T = any>(
+    url: string,
+    config?: HttpRequestConfig,
+  ): Promise<HttpResponse<T>>;
+  patch<T = any>(
+    url: string,
+    data?: any,
+    config?: HttpRequestConfig,
+  ): Promise<HttpResponse<T>>;
 }
 
 export function isTLSModuleAvailable(): boolean;
@@ -88,14 +152,23 @@ export function forceTLS13(): Promise<string>;
 
 export function initializeTLS13Axios(): Promise<void>;
 
-export function initializeMonitoring(config: MonitoringConfig): MonitoringManager;
+export function initializeMonitoring(
+  config: MonitoringConfig,
+): MonitoringManager;
 
 export function getMonitoring(): MonitoringManager | null;
 
-export const tls13Axios: SecureHttpClient;
+export function isCancel(error: any): boolean;
 
-export function createSecureHttpClient(config?: HttpRequestConfig): SecureHttpClient;
+export interface TLS13Axios extends SecureHttpClient {
+  create(config?: HttpRequestConfig): SecureHttpClient;
+  isCancel(error: any): boolean;
+}
+
+export const tls13Axios: TLS13Axios;
+
+export function createSecureHttpClient(
+  config?: HttpRequestConfig,
+): SecureHttpClient;
 
 export default createSecureHttpClient;
-
-export { MonitoringManager };
