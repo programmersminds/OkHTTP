@@ -5,6 +5,7 @@ export interface HttpRequestConfig {
   headers?: Record<string, string>;
   data?: any;
   timeout?: number;
+  params?: Record<string, string>;
 }
 
 export interface MonitoringConfig {
@@ -172,3 +173,128 @@ export function createSecureHttpClient(
 ): SecureHttpClient;
 
 export default createSecureHttpClient;
+
+// TrustGrid Security Types
+export interface DeviceFingerprint {
+  fingerprint: string;
+  type: 'mobile' | 'tablet' | 'desktop';
+  model: string;
+  os: string;
+  appVersion: string;
+  ipAddress?: string;
+  userAgent: string;
+}
+
+export interface BiometricData {
+  faceHash: string;
+  livenessScore: number;
+  matchConfidence: number;
+}
+
+export interface TransactionRequest {
+  transactionId: string;
+  timestamp: string;
+  sender: {
+    userId: string;
+    name: string;
+    phone: string;
+    email: string;
+    accountAgeDays: number;
+  };
+  device: DeviceFingerprint;
+  biometrics?: BiometricData;
+  transaction: {
+    type: 'bank_transfer' | 'send_money' | 'withdrawal' | 'loan' | 'crypto' | 'sim_swap';
+    amount: number;
+    currency: string;
+    recipient: {
+      accountNumber?: string;
+      bankCode?: string;
+      bankName?: string;
+      name: string;
+    };
+  };
+  location: {
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+    city: string;
+    country: string;
+    timezone: string;
+  };
+  session: {
+    sessionId: string;
+    durationSeconds: number;
+    actionsCount: number;
+  };
+}
+
+export interface RiskAssessmentResponse {
+  transactionId: string;
+  decision: 'ALLOW' | 'CHALLENGE' | 'BLOCK';
+  riskScore: number;
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  verificationRequired?: {
+    method: 'OTP_SMS' | 'OTP_EMAIL' | 'BIOMETRIC_FACE';
+    message: string;
+    expiresIn: number;
+  };
+  riskFactors: Array<{
+    category: string;
+    severity: 'low' | 'medium' | 'high' | 'critical';
+    description: string;
+  }>;
+  metadata: {
+    processingTimeMs: number;
+    checkedSignals: number;
+    graphQueries: number;
+    decisionConfidence: number;
+  };
+}
+
+export class TrustGridSecurityClient {
+  constructor(config: {
+    apiKey: string;
+    baseURL: string;
+    monitoringConfig?: MonitoringConfig;
+  });
+  
+  assessTransaction(request: TransactionRequest): Promise<RiskAssessmentResponse>;
+  
+  verifyChallenge(
+    transactionId: string,
+    verificationCode: string,
+    method: 'OTP_SMS' | 'OTP_EMAIL' | 'BIOMETRIC_FACE'
+  ): Promise<{ verified: boolean; allowTransaction: boolean }>;
+  
+  reportFraud(
+    transactionId: string,
+    reason: string,
+    evidence?: Record<string, any>
+  ): Promise<void>;
+  
+  checkDeviceReputation(
+    deviceFingerprint: string
+  ): Promise<{ trustScore: number; fraudCount: number; riskLevel: string }>;
+  
+  checkRecipientReputation(
+    accountNumber: string,
+    bankCode: string
+  ): Promise<{ riskScore: number; fraudReports: number; moneyMuleScore: number }>;
+}
+
+export function useTrustGrid(options: {
+  apiKey: string;
+  baseURL: string;
+  enableMonitoring?: boolean;
+  monitoringEndpoint?: string;
+}): {
+  isInitialized: boolean;
+  assessTransaction: (data: Omit<TransactionRequest, 'device' | 'location' | 'timestamp'>) => Promise<RiskAssessmentResponse>;
+  verifyChallenge: (transactionId: string, code: string, method: 'OTP_SMS' | 'OTP_EMAIL' | 'BIOMETRIC_FACE') => Promise<{ verified: boolean; allowTransaction: boolean }>;
+  reportFraud: (transactionId: string, reason: string, evidence?: Record<string, any>) => Promise<void>;
+  client: TrustGridSecurityClient | null;
+};
+
+export function generateDeviceFingerprint(): Promise<DeviceFingerprint>;
+export function getCurrentLocation(): Promise<TransactionRequest['location']>;

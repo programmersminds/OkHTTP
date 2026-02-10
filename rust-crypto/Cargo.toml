@@ -1,0 +1,18 @@
+[package]
+name = "secure-http-crypto"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+aes-gcm = "0.10"
+base64 = "0.21"
+hmac = "0.12"
+sha2 = "0.10"
+ring = "0.17"
+
+[profile.release]
+opt-level = 3
+lto = true
