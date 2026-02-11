@@ -57,7 +57,7 @@ The library automatically detects and uses the best available API:
 ## Testing Compatibility
 
 ```javascript
-import { testTLS13Support, checkSecurityProviders } from '@keymobile/react-native-secure-http';
+import { testTLS13Support, checkSecurityProviders } from 'react-native-secure-http';
 
 // Check what's available on current device
 const support = await testTLS13Support();
