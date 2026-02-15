@@ -3,7 +3,11 @@
 ```bash
 npm install git+https://github.com/programmersminds/OkHTTP.git
 ```
-
+  "files": [
+    "src/index.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
 ### Using yarn
 ```bash
 yarn add git+https://github.com/programmersminds/OkHTTP.git
