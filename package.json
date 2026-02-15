@@ -4,11 +4,7 @@
   "description": "Secure HTTP client with TLS 1.3, Rust-powered encryption, and fraud prevention",
   "main": "src/index.js",
   "types": "src/index.d.ts",
-  "files": [
-    "src/index.d.ts",
-    "README.md",
-    "LICENSE"
-  ],
+
   "scripts": {
     "test": "echo \"No tests yet\"",
     "postinstall": "echo \"✅ react-native-secure-http installed successfully\""
