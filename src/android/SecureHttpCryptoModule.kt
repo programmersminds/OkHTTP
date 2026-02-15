@@ -75,6 +75,16 @@ class SecureHttpCryptoModule(reactContext: ReactApplicationContext) : ReactConte
     }
     
     @ReactMethod
+    fun clearStorage(promise: Promise) {
+        try {
+            val success = nativeClearStorage()
+            promise.resolve(success)
+        } catch (e: Exception) {
+            promise.reject("CLEAR_ERROR", e.message)
+        }
+    }
+    
+    @ReactMethod
     fun generateKey(promise: Promise) {
         try {
             val result = nativeGenerateKey()
@@ -90,6 +100,7 @@ class SecureHttpCryptoModule(reactContext: ReactApplicationContext) : ReactConte
     private external fun nativeStoreKey(key: String, value: String): Boolean
     private external fun nativeGetKey(key: String): String?
     private external fun nativeRemoveKey(key: String): Boolean
+    private external fun nativeClearStorage(): Boolean
     private external fun nativeGenerateKey(): String
     
     companion object {

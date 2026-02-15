@@ -60,6 +60,12 @@ class SecureHttpCrypto: NSObject {
   }
   
   @objc
+  func clearStorage(_ resolver: @escaping RCTPromiseResolveBlock, rejecter: @escaping RCTPromiseRejectBlock) {
+    let success = crypto_clear_storage()
+    resolver(success)
+  }
+  
+  @objc
   func generateKey(_ resolver: @escaping RCTPromiseResolveBlock, rejecter: @escaping RCTPromiseRejectBlock) {
     let result = crypto_generate_key()
     let key = String(cString: result)

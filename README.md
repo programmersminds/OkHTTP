@@ -13,6 +13,48 @@ Secure HTTP client with TLS 1.2/1.3 support and Microsoft-style monitoring for R
 
 ## Compatibility
 
+import { 
+  tls13Axios, 
+  validateSecurityOrThrow,
+  SecureStorage
+} from "react-native-secure-http";
+
+const createAxiosInstance = () => {
+  const instance = tls13Axios.create({
+    baseURL: BASE_URL,
+    timeout: 1000 * 40,
+  });
+
+  // Block insecure devices automatically
+  instance.interceptors.request.push(async (config) => {
+    await validateSecurityOrThrow(); // ← Blocks rooted devices, proxies, cert tampering
+    
+    const headers = createHeader();
+    config.headers = { ...config.headers, ...headers };
+    return config;
+  });
+    instance.interceptors.response.push(async(response) => {
+      console.log("FULL RESPONSE JSON", JSON.stringify(response, null, 2));
+      if (response?.status === 200 && response?.config?.url) {
+      const cacheKey = `cache_${response.config.url}`;
+      await SecureStorage.setItem(cacheKey, {
+        data: response.data,
+        timestamp: Date.now(),
+      });
+    }
+
+      return response;
+    });
+
+  instance.interceptors.error.push((error) => {
+      console.log("FULL ERROR JSON", JSON.stringify(error, null, 2));
+      if (error.response) {
+        console.log("Status:", error.response.status);
+      }
+      return Promise.reject(error);
+    });
+  return instance;
+};
 - ✅ **React Native**: All versions (0.40+)
 - ✅ **Android**: API 16+ (Android 4.1+)
 - ✅ **iOS**: 11.0+
@@ -23,9 +65,13 @@ See [COMPATIBILITY.md](./COMPATIBILITY.md) for detailed version support.
 
 ## Installation
 
+### Using npm
 ```bash
 npm install git+https://github.com/programmersminds/OkHTTP.git
-# or
+```
+
+### Using yarn
+```bash
 yarn add git+https://github.com/programmersminds/OkHTTP.git
 ```
 

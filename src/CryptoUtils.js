@@ -34,3 +34,43 @@ const CryptoUtils = {
 };
 
 export default CryptoUtils;
+
+// Secure Storage API
+export const SecureStorage = {
+  async setItem(key, value) {
+    if (!SecureHttpCrypto) {
+      throw new Error('Rust crypto module not available');
+    }
+    const success = await SecureHttpCrypto.storeKey(key, JSON.stringify(value));
+    if (!success) {
+      throw new Error('Failed to store item securely');
+    }
+  },
+
+  async getItem(key) {
+    if (!SecureHttpCrypto) {
+      throw new Error('Rust crypto module not available');
+    }
+    const value = await SecureHttpCrypto.getKey(key);
+    if (!value) return null;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  },
+
+  async removeItem(key) {
+    if (!SecureHttpCrypto) {
+      throw new Error('Rust crypto module not available');
+    }
+    return await SecureHttpCrypto.removeKey(key);
+  },
+
+  async clear() {
+    if (!SecureHttpCrypto) {
+      throw new Error('Rust crypto module not available');
+    }
+    return await SecureHttpCrypto.clearStorage();
+  },
+};

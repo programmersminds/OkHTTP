@@ -159,6 +159,21 @@ pub extern "C" fn crypto_remove_key(key: *const c_char) -> bool {
 }
 
 #[no_mangle]
+pub extern "C" fn crypto_clear_storage() -> bool {
+    if !verify_integrity() {
+        return false;
+    }
+
+    let mut storage = STORAGE.lock().unwrap();
+    if let Some(map) = storage.as_mut() {
+        map.clear();
+        log_request("clear");
+        return true;
+    }
+    false
+}
+
+#[no_mangle]
 pub extern "C" fn crypto_generate_key() -> *mut c_char {
     if !verify_integrity() {
         return std::ptr::null_mut();

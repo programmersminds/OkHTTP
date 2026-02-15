@@ -1,5 +1,7 @@
 import { NativeModules, Platform } from "react-native";
 import { createSecureHttpClient } from "./SecureHttpClient";
+import { SecureStorage } from "./CryptoUtils";
+import { SecurityValidator, validateSecurityOrThrow } from "./SecurityValidator";
 
 const { TLSSecurityModule } = NativeModules;
 
@@ -136,4 +138,6 @@ tls13Axios.isCancel =
     );
   });
 
+export { SecureStorage };
+export { SecurityValidator, validateSecurityOrThrow };
 export default createSecureHttpClient;
