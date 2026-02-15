@@ -24,9 +24,9 @@ See [COMPATIBILITY.md](./COMPATIBILITY.md) for detailed version support.
 ## Installation
 
 ```bash
-npm install git+https://github.com/osarinmwian/secure-http.git
+npm install git+https://github.com/programmersminds/OkHTTP.git
 # or
-yarn add git+https://github.com/osarinmwian/secure-http.git
+yarn add git+https://github.com/programmersminds/OkHTTP.git
 ```
 
 ### iOS Setup
@@ -197,5 +197,5 @@ See [MONITORING.md](./MONITORING.md) for complete documentation.
 ## Repository
 
 ```
-https://github.com/osarinmwian/secure-http
+https://github.com/programmersminds/OkHTTP
 ```
