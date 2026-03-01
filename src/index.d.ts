@@ -1,3 +1,11 @@
+export interface SecureStorageAPI {
+  setItem(key: string, value: any): Promise<void>;
+  getItem(key: string): Promise<any>;
+  removeItem(key: string): Promise<void>;
+  clear(): Promise<void>;
+}
+
+export const SecureStorage: SecureStorageAPI;
 export interface HttpRequestConfig {
   url?: string;
   method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
@@ -320,3 +328,4 @@ export function useTrustGrid(options: {
 
 export function generateDeviceFingerprint(): Promise<DeviceFingerprint>;
 export function getCurrentLocation(): Promise<TransactionRequest["location"]>;
+export function validateSecurityOrThrow(): Promise<void>;
