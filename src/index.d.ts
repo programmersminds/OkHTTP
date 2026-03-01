@@ -14,6 +14,7 @@ export interface HttpRequestConfig {
   data?: any;
   timeout?: number;
   params?: Record<string, string>;
+  signal?: AbortSignal;
 }
 
 export interface MonitoringConfig {
