@@ -40,6 +40,11 @@ import {
 import sha512 from "@cryptography/sha512";
 import moment from "moment";
 
+// rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios 2>&1
+
+// react-native-secure-http/rust-crypto && cargo build --release --target aarch64-apple-ios-sim 2>&1 && cargo build --release --target x86_64-apple-ios 2>&1
+
+
 // Check security on app start
 export async function initializeSecurity() {
   const security = await SecurityValidator.isDeviceSecure();
