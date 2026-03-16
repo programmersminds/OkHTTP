@@ -4,6 +4,16 @@
   "description": "Secure HTTP client with TLS 1.3, Rust-powered encryption, and fraud prevention",
   "main": "src/index.js",
   "types": "src/index.d.ts",
+  "react-native": {
+    "android": {
+      "sourceDir": "src/android",
+      "packageImportPath": "import com.securehttp.SecureHttpPackage;",
+      "packageInstance": "new SecureHttpPackage()"
+    },
+    "ios": {
+      "podspecPath": "react-native-secure-http.podspec"
+    }
+  },
 
   "scripts": {
     "test": "echo \"No tests yet\"",
