@@ -10,7 +10,6 @@ class SecureHttpPackage : ReactPackage {
         return listOf(
             TLSSecurityModule(reactContext),
             SecureHttpCryptoModule(reactContext),
-            SecurityModule(reactContext)
         )
     }
 
