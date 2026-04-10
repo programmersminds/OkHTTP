@@ -66,8 +66,9 @@ class SecureHttpCryptoModule(private val reactContext: ReactApplicationContext) 
     @ReactMethod
     fun storeKey(key: String, value: String, promise: Promise) {
         try {
-            prefs.edit().putString(key, encrypt(value)).apply()
-            promise.resolve(true)
+            val success = prefs.edit().putString(key, encrypt(value)).commit()
+            if (success) promise.resolve(true)
+            else promise.reject("STORE_ERROR", "Failed to commit to SharedPreferences")
         } catch (e: Exception) {
             promise.reject("STORE_ERROR", e.message)
         }
@@ -90,7 +91,7 @@ class SecureHttpCryptoModule(private val reactContext: ReactApplicationContext) 
     @ReactMethod
     fun removeKey(key: String, promise: Promise) {
         try {
-            prefs.edit().remove(key).apply()
+            prefs.edit().remove(key).commit()
             promise.resolve(true)
         } catch (e: Exception) {
             promise.reject("REMOVE_ERROR", e.message)
@@ -100,7 +101,7 @@ class SecureHttpCryptoModule(private val reactContext: ReactApplicationContext) 
     @ReactMethod
     fun clearStorage(promise: Promise) {
         try {
-            prefs.edit().clear().apply()
+            prefs.edit().clear().commit()
             promise.resolve(true)
         } catch (e: Exception) {
             promise.reject("CLEAR_ERROR", e.message)
