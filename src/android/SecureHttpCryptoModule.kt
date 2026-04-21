@@ -1,99 +1,219 @@
 package com.securehttp
 
 import com.facebook.react.bridge.*
+import kotlinx.coroutines.*
+import java.util.concurrent.Executors
 
 class SecureHttpCryptoModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
     
-    override fun getName() = "SecureHttpCrypto"
+    private val coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val httpExecutor = Executors.newCachedThreadPool()
     
+    override fun getName() = "SecureHttpCryptoModule"
+    
+    // Crypto methods
     @ReactMethod
     fun encrypt(plaintext: String, key: String, promise: Promise) {
-        try {
-            val result = nativeEncrypt(plaintext, key)
-            if (result != null) {
-                promise.resolve(result)
-            } else {
-                promise.reject("ENCRYPT_ERROR", "Encryption failed")
+        coroutineScope.launch {
+            try {
+                val result = nativeEncrypt(plaintext, key)
+                if (result != null) {
+                    promise.resolve(result)
+                } else {
+                    promise.reject("ENCRYPT_ERROR", "Encryption failed")
+                }
+            } catch (e: Exception) {
+                promise.reject("ENCRYPT_ERROR", e.message)
             }
-        } catch (e: Exception) {
-            promise.reject("ENCRYPT_ERROR", e.message)
         }
     }
     
     @ReactMethod
     fun decrypt(ciphertext: String, key: String, promise: Promise) {
-        try {
-            val result = nativeDecrypt(ciphertext, key)
-            if (result != null) {
-                promise.resolve(result)
-            } else {
-                promise.reject("DECRYPT_ERROR", "Decryption failed")
+        coroutineScope.launch {
+            try {
+                val result = nativeDecrypt(ciphertext, key)
+                if (result != null) {
+                    promise.resolve(result)
+                } else {
+                    promise.reject("DECRYPT_ERROR", "Decryption failed")
+                }
+            } catch (e: Exception) {
+                promise.reject("DECRYPT_ERROR", e.message)
             }
-        } catch (e: Exception) {
-            promise.reject("DECRYPT_ERROR", e.message)
         }
     }
     
     @ReactMethod
     fun sign(data: String, timestamp: Double, key: String, promise: Promise) {
-        try {
-            val result = nativeSign(data, timestamp.toLong(), key)
-            promise.resolve(result)
-        } catch (e: Exception) {
-            promise.reject("SIGN_ERROR", e.message)
+        coroutineScope.launch {
+            try {
+                val result = nativeSign(data, timestamp.toLong(), key)
+                promise.resolve(result)
+            } catch (e: Exception) {
+                promise.reject("SIGN_ERROR", e.message)
+            }
         }
     }
     
     @ReactMethod
     fun storeKey(key: String, value: String, promise: Promise) {
-        try {
-            val success = nativeStoreKey(key, value)
-            promise.resolve(success)
-        } catch (e: Exception) {
-            promise.reject("STORE_ERROR", e.message)
+        coroutineScope.launch {
+            try {
+                val success = nativeStoreKey(key, value)
+                promise.resolve(success)
+            } catch (e: Exception) {
+                promise.reject("STORE_ERROR", e.message)
+            }
         }
     }
     
     @ReactMethod
     fun getKey(key: String, promise: Promise) {
-        try {
-            val result = nativeGetKey(key)
-            promise.resolve(result)
-        } catch (e: Exception) {
-            promise.reject("GET_ERROR", e.message)
+        coroutineScope.launch {
+            try {
+                val result = nativeGetKey(key)
+                promise.resolve(result)
+            } catch (e: Exception) {
+                promise.reject("GET_ERROR", e.message)
+            }
         }
     }
     
     @ReactMethod
     fun removeKey(key: String, promise: Promise) {
-        try {
-            val success = nativeRemoveKey(key)
-            promise.resolve(success)
-        } catch (e: Exception) {
-            promise.reject("REMOVE_ERROR", e.message)
+        coroutineScope.launch {
+            try {
+                val success = nativeRemoveKey(key)
+                promise.resolve(success)
+            } catch (e: Exception) {
+                promise.reject("REMOVE_ERROR", e.message)
+            }
         }
     }
     
     @ReactMethod
     fun clearStorage(promise: Promise) {
-        try {
-            val success = nativeClearStorage()
-            promise.resolve(success)
-        } catch (e: Exception) {
-            promise.reject("CLEAR_ERROR", e.message)
+        coroutineScope.launch {
+            try {
+                val success = nativeClearStorage()
+                promise.resolve(success)
+            } catch (e: Exception) {
+                promise.reject("CLEAR_ERROR", e.message)
+            }
         }
     }
     
     @ReactMethod
     fun generateKey(promise: Promise) {
-        try {
-            val result = nativeGenerateKey()
-            promise.resolve(result)
-        } catch (e: Exception) {
-            promise.reject("GENERATE_ERROR", e.message)
+        coroutineScope.launch {
+            try {
+                val result = nativeGenerateKey()
+                promise.resolve(result)
+            } catch (e: Exception) {
+                promise.reject("GENERATE_ERROR", e.message)
+            }
         }
     }
+
+    // High-performance HTTP client methods
+    @ReactMethod
+    fun httpClientInit(promise: Promise) {
+        try {
+            val result = nativeHttpClientInit()
+            promise.resolve(result)
+        } catch (e: Exception) {
+            promise.reject("HTTP_INIT_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun httpExecuteRequest(configJson: String, requestJson: String, promise: Promise) {
+        coroutineScope.launch {
+            try {
+                val result = nativeHttpExecuteRequest(configJson, requestJson)
+                if (result != null) {
+                    promise.resolve(result)
+                } else {
+                    promise.reject("HTTP_REQUEST_ERROR", "Request execution failed")
+                }
+            } catch (e: Exception) {
+                promise.reject("HTTP_REQUEST_ERROR", e.message, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun httpExecuteBatchRequests(configJson: String, requestsJson: String, promise: Promise) {
+        coroutineScope.launch {
+            try {
+                val result = nativeHttpExecuteBatchRequests(configJson, requestsJson)
+                if (result != null) {
+                    promise.resolve(result)
+                } else {
+                    promise.reject("HTTP_BATCH_ERROR", "Batch request execution failed")
+                }
+            } catch (e: Exception) {
+                promise.reject("HTTP_BATCH_ERROR", e.message, e)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun httpGetMetrics(endpoint: String, promise: Promise) {
+        try {
+            val result = nativeHttpGetMetrics(endpoint)
+            if (result != null) {
+                promise.resolve(result)
+            } else {
+                promise.resolve(null)
+            }
+        } catch (e: Exception) {
+            promise.reject("HTTP_METRICS_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun httpClearCache(promise: Promise) {
+        try {
+            val result = nativeHttpClearCache()
+            promise.resolve(result)
+        } catch (e: Exception) {
+            promise.reject("HTTP_CACHE_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun httpGetCacheStats(promise: Promise) {
+        try {
+            val result = nativeHttpGetCacheStats()
+            if (result != null) {
+                promise.resolve(result)
+            } else {
+                promise.resolve(null)
+            }
+        } catch (e: Exception) {
+            promise.reject("HTTP_CACHE_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun httpWarmupConnections(baseUrlsJson: String, promise: Promise) {
+        try {
+            val result = nativeHttpWarmupConnections(baseUrlsJson)
+            promise.resolve(result)
+        } catch (e: Exception) {
+            promise.reject("HTTP_WARMUP_ERROR", e.message, e)
+        }
+    }
+
+    override fun onCatalystInstanceDestroy() {
+        super.onCatalystInstanceDestroy()
+        coroutineScope.cancel()
+        httpExecutor.shutdown()
+    }
     
+    // Crypto native methods
     private external fun nativeEncrypt(plaintext: String, key: String): String?
     private external fun nativeDecrypt(ciphertext: String, key: String): String?
     private external fun nativeSign(data: String, timestamp: Long, key: String): String
@@ -103,9 +223,22 @@ class SecureHttpCryptoModule(reactContext: ReactApplicationContext) : ReactConte
     private external fun nativeClearStorage(): Boolean
     private external fun nativeGenerateKey(): String
     
+    // HTTP client native methods
+    private external fun nativeHttpClientInit(): Boolean
+    private external fun nativeHttpExecuteRequest(configJson: String, requestJson: String): String?
+    private external fun nativeHttpExecuteBatchRequests(configJson: String, requestsJson: String): String?
+    private external fun nativeHttpGetMetrics(endpoint: String): String?
+    private external fun nativeHttpClearCache(): Boolean
+    private external fun nativeHttpGetCacheStats(): String?
+    private external fun nativeHttpWarmupConnections(baseUrlsJson: String): Boolean
+    
     companion object {
         init {
-            System.loadLibrary("secure_http_crypto")
+            try {
+                System.loadLibrary("secure_http_crypto")
+            } catch (e: UnsatisfiedLinkError) {
+                // Library not available, methods will fail gracefully
+            }
         }
     }
 }

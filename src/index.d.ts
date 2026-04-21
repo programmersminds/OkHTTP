@@ -15,7 +15,82 @@ export interface HttpRequestConfig {
   timeout?: number;
   params?: Record<string, string>;
   signal?: AbortSignal;
+  enableCache?: boolean;
 }
+
+export interface RustHttpConfig {
+  baseURL?: string;
+  timeout?: number;
+  maxConnections?: number;
+  keepAlive?: boolean;
+  http2PriorKnowledge?: boolean;
+  enableCompression?: boolean;
+  enableCaching?: boolean;
+  cacheTtlSeconds?: number;
+  retryAttempts?: number;
+  retryDelayMs?: number;
+  userAgent?: string;
+  headers?: Record<string, string>;
+}
+
+export interface RustHttpResponse<T = any> {
+  data: T;
+  status: number;
+  statusText: string;
+  headers: Record<string, string>;
+  config: HttpRequestConfig;
+  fromCache: boolean;
+  compressed: boolean;
+  httpVersion: string;
+  duration: number;
+}
+
+export interface HttpMetrics {
+  totalRequests: number;
+  successfulRequests: number;
+  failedRequests: number;
+  avgResponseTime: number;
+  cacheHits: number;
+  cacheMisses: number;
+  bytesReceived?: number;
+  bytesSent?: number;
+}
+
+export interface BenchmarkResult {
+  iterations: number;
+  totalTime: number;
+  avgTime: number;
+  minTime: number;
+  maxTime: number;
+  successRate: number;
+  throughput: number;
+}
+
+export class RustHttpClient {
+  constructor(config?: RustHttpConfig);
+  
+  request<T = any>(config: HttpRequestConfig): Promise<RustHttpResponse<T>>;
+  get<T = any>(url: string, config?: HttpRequestConfig): Promise<RustHttpResponse<T>>;
+  post<T = any>(url: string, data?: any, config?: HttpRequestConfig): Promise<RustHttpResponse<T>>;
+  put<T = any>(url: string, data?: any, config?: HttpRequestConfig): Promise<RustHttpResponse<T>>;
+  delete<T = any>(url: string, config?: HttpRequestConfig): Promise<RustHttpResponse<T>>;
+  patch<T = any>(url: string, data?: any, config?: HttpRequestConfig): Promise<RustHttpResponse<T>>;
+  
+  batchRequest<T = any>(requests: HttpRequestConfig[]): Promise<RustHttpResponse<T>[]>;
+  queueRequest<T = any>(config: HttpRequestConfig): Promise<RustHttpResponse<T>>;
+  parallel<T = any>(requests: HttpRequestConfig[]): Promise<RustHttpResponse<T>[]>;
+  
+  getMetrics(endpoint?: string): HttpMetrics | null;
+  getAllMetrics(): Record<string, HttpMetrics>;
+  clearCache(): boolean;
+  getCacheStats(): { size: number; capacity: number } | null;
+  
+  benchmark(url: string, iterations?: number): Promise<BenchmarkResult>;
+  create(config?: RustHttpConfig): RustHttpClient;
+}
+
+export function createRustHttpClient(config?: RustHttpConfig): RustHttpClient;
+export const rustHttpClient: RustHttpClient;
 
 export interface MonitoringConfig {
   instrumentationKey?: string;

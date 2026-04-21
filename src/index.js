@@ -1,5 +1,6 @@
 import { NativeModules, Platform } from "react-native";
 import { createSecureHttpClient } from "./SecureHttpClient";
+import { createRustHttpClient, rustHttp } from "./RustHttpClient";
 import { SecureStorage } from "./CryptoUtils";
 import { SecurityValidator, validateSecurityOrThrow } from "./SecurityValidator";
 
@@ -137,6 +138,12 @@ tls13Axios.isCancel =
       (error?.name === "AbortError" || error?.message?.includes("abort"))
     );
   });
+
+// Pre-configured high-performance client with Rust backend
+export const rustHttpClient = rustHttp;
+
+// Ultra-fast Rust-powered HTTP client factory
+export { createRustHttpClient };
 
 export { SecureStorage };
 export { SecurityValidator, validateSecurityOrThrow };

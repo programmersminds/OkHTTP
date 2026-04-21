@@ -12,6 +12,9 @@ use std::os::raw::c_char;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod http_client;
+pub use http_client::*;
+
 type HmacSha256 = Hmac<Sha256>;
 
 static STORAGE: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
@@ -197,7 +200,7 @@ pub extern "C" fn crypto_verify_integrity() -> bool {
 #[no_mangle]
 pub extern "C" fn crypto_free_string(s: *mut c_char) {
     if !s.is_null() {
-        unsafe { CString::from_raw(s) };
+        unsafe { let _ = CString::from_raw(s); };
     }
 }
 
