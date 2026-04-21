@@ -31,6 +31,13 @@ class RustHttpClient {
     this.batchTimer = null;
     this.metrics = new Map();
     
+    // Axios-compatible interceptors
+    this.interceptors = {
+      request: [],
+      response: [],
+      error: [],
+    };
+    
     if (this.isRustAvailable) {
       this._initializeRustClient();
     }
@@ -71,13 +78,48 @@ class RustHttpClient {
     const startTime = Date.now();
     
     try {
-      if (this.isRustAvailable) {
-        return await this._executeRustRequest(requestConfig);
-      } else {
-        return await this._executeFallbackRequest(requestConfig);
+      // Apply request interceptors
+      let config = { ...requestConfig };
+      for (const interceptor of this.interceptors.request) {
+        try {
+          config = await interceptor(config);
+          if (!config) throw new Error('Request interceptor returned undefined config');
+        } catch (e) {
+          throw new Error(`Request interceptor error: ${e.message}`);
+        }
       }
+      
+      let result;
+      if (this.isRustAvailable) {
+        result = await this._executeRustRequest(config);
+      } else {
+        result = await this._executeFallbackRequest(config);
+      }
+      
+      // Apply response interceptors
+      for (const interceptor of this.interceptors.response) {
+        try {
+          result = await interceptor(result);
+        } catch (e) {
+          // Response interceptor error - continue with result
+          console.warn('Response interceptor error:', e.message);
+        }
+      }
+      
+      return result;
     } catch (error) {
       this._updateMetrics(requestConfig.url || 'unknown', false, Date.now() - startTime);
+      
+      // Apply error interceptors
+      for (const interceptor of this.interceptors.error) {
+        try {
+          const handled = await interceptor(error);
+          if (handled !== undefined) return handled;
+        } catch (e) {
+          throw e;
+        }
+      }
+      
       throw error;
     }
   }
