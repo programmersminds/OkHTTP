@@ -25,6 +25,7 @@ class RustHttpClient {
   constructor(config = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.isRustAvailable = this._checkRustAvailability();
+    this.initPromise = null;
     this.requestQueue = [];
     this.batchSize = 10;
     this.batchTimeout = 50; // ms
@@ -39,35 +40,54 @@ class RustHttpClient {
     };
     
     if (this.isRustAvailable) {
-      this._initializeRustClient();
+      this.initPromise = this._initializeRustClient();
     }
   }
 
   _checkRustAvailability() {
-    return SecureHttpCryptoModule && 
-           typeof SecureHttpCryptoModule.httpExecuteRequest === 'function';
+    const isAvailable = !!(
+      SecureHttpCryptoModule &&
+      typeof SecureHttpCryptoModule.httpExecuteRequest === 'function' &&
+      typeof SecureHttpCryptoModule.httpClientInit === 'function'
+    );
+
+    if (!isAvailable) {
+      console.warn('SecureHttp native module unavailable, falling back to fetch', {
+        hasModule: !!SecureHttpCryptoModule,
+        hasHttpExecuteRequest:
+          !!SecureHttpCryptoModule &&
+          typeof SecureHttpCryptoModule.httpExecuteRequest === 'function',
+        hasHttpClientInit:
+          !!SecureHttpCryptoModule &&
+          typeof SecureHttpCryptoModule.httpClientInit === 'function',
+      });
+    }
+
+    return isAvailable;
   }
 
-  _initializeRustClient() {
+  async _initializeRustClient() {
     try {
-      SecureHttpCryptoModule.httpClientInit();
+      await SecureHttpCryptoModule.httpClientInit();
       console.log('✅ Rust HTTP client initialized successfully');
       
       // Warmup connections for better performance
       if (this.config.baseURL) {
-        this._warmupConnections([this.config.baseURL]);
+        await this._warmupConnections([this.config.baseURL]);
       }
+      return true;
     } catch (error) {
       console.warn('⚠️ Rust HTTP client initialization failed:', error.message);
       this.isRustAvailable = false;
+      return false;
     }
   }
 
-  _warmupConnections(urls) {
+  async _warmupConnections(urls) {
     if (!this.isRustAvailable) return;
     
     try {
-      SecureHttpCryptoModule.httpWarmupConnections(JSON.stringify(urls));
+      await SecureHttpCryptoModule.httpWarmupConnections(JSON.stringify(urls));
     } catch (error) {
       console.warn('Connection warmup failed:', error.message);
     }
@@ -88,11 +108,17 @@ class RustHttpClient {
           throw new Error(`Request interceptor error: ${e.message}`);
         }
       }
+
+      if (this.initPromise) {
+        await this.initPromise;
+      }
       
       let result;
       if (this.isRustAvailable) {
+        console.log('SecureHttp request using native Rust backend');
         result = await this._executeRustRequest(config);
       } else {
+        console.log('SecureHttp request using fetch fallback');
         result = await this._executeFallbackRequest(config);
       }
       
