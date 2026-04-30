@@ -142,9 +142,23 @@ tls13Axios.isCancel =
 // Pre-configured high-performance client with Rust backend
 export const rustHttpClient = rustHttp;
 
-// Ultra-fast Rust-powered HTTP client factory
+// Ultra-fast Rust-powered HTTP client factory - export the imported function
 export { createRustHttpClient };
 
 export { SecureStorage };
 export { SecurityValidator, validateSecurityOrThrow };
+
+// Export all named exports for CommonJS compatibility
+export {
+  createSecureHttpClient,
+  isTLSModuleAvailable,
+  updateSecurityProvider,
+  checkSecurityProviders,
+  testTLS13Support,
+  forceTLS13,
+  initializeTLS13Axios,
+  tls13Axios,
+  rustHttp,
+};
+
 export default createSecureHttpClient;
