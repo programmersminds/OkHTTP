@@ -6,14 +6,14 @@ const { SecureHttpCryptoModule } = NativeModules;
 const DEFAULT_CONFIG = {
   baseURL: '',
   timeout: 30000,
-  maxConnections: 100,
+  maxConnections: 200,
   keepAlive: true,
   http2PriorKnowledge: true,
   enableCompression: true,
   enableCaching: true,
   cacheTtlSeconds: 300,
   retryAttempts: 3,
-  retryDelayMs: 1000,
+  retryDelayMs: 500,
   userAgent: 'RustSecureHttp/2.0',
   headers: {
     'Content-Type': 'application/json',
@@ -27,8 +27,8 @@ class RustHttpClient {
     this.isRustAvailable = this._checkRustAvailability();
     this.initPromise = null;
     this.requestQueue = [];
-    this.batchSize = 10;
-    this.batchTimeout = 50; // ms
+    this.batchSize = 50;  // increased from 10
+    this.batchTimeout = 20; // reduced from 50ms for faster flush
     this.batchTimer = null;
     this.metrics = new Map();
     
@@ -115,10 +115,8 @@ class RustHttpClient {
       
       let result;
       if (this.isRustAvailable) {
-        console.log('SecureHttp request using native Rust backend');
         result = await this._executeRustRequest(config);
       } else {
-        console.log('SecureHttp request using fetch fallback');
         result = await this._executeFallbackRequest(config);
       }
       

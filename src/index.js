@@ -143,8 +143,14 @@ tls13Axios.isCancel =
 export const rustHttpClient = rustHttp;
 
 // Ultra-fast Rust-powered HTTP client factory
-export { createRustHttpClient };
+export { createRustHttpClient, rustHttp };
 
+// Export crypto and security utilities
 export { SecureStorage };
 export { SecurityValidator, validateSecurityOrThrow };
+
+// Export main HTTP client factory
+export { createSecureHttpClient };
+
+// Default export
 export default createSecureHttpClient;
