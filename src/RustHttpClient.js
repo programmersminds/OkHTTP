@@ -43,7 +43,7 @@ class RustHttpClient {
   constructor(key, config = {}) {
     // Use Symbol-based protection - elegant and professional
     if (key !== PRIVATE_CONSTRUCTOR_KEY) {
-      console.warn('⚠️ Direct instantiation detected. Use createRustHttpClient() for optimal performance and caching.');
+      console.warn('Direct instantiation detected. Use createRustHttpClient() for optimal performance and caching.');
       // Allow it but warn - graceful degradation
     }
 
@@ -74,7 +74,16 @@ class RustHttpClient {
     const handlers = [];
     let nextId = 0;
 
-    return Object.freeze({
+    const push = (handlerOrFn) => {
+      if (typeof handlerOrFn === 'function') {
+        return manager.use(handlerOrFn);
+      }
+      if (handlerOrFn && typeof handlerOrFn === 'object') {
+        return manager.use(handlerOrFn.fulfilled, handlerOrFn.rejected);
+      }
+    };
+
+    const manager = Object.freeze({
       use: (fulfilled, rejected) => {
         const id = nextId++;
         handlers.push({ fulfilled, rejected, id });
@@ -92,10 +101,13 @@ class RustHttpClient {
       forEach: (callback) => {
         handlers.forEach(callback);
       },
+      push,
       get length() {
         return handlers.length;
       }
     });
+
+    return manager;
   }
 
   _checkRustAvailability() {
@@ -128,7 +140,7 @@ class RustHttpClient {
     try {
       await SecureHttpCryptoModule.httpClientInit();
       globalIsInitialized = true;
-      console.log('✅ Rust HTTP client initialized successfully');
+      console.log('HTTP client initialized successfully');
 
       // Warmup connections for better performance
       if (this.config.baseURL) {
@@ -136,7 +148,7 @@ class RustHttpClient {
       }
       return true;
     } catch (error) {
-      console.warn('⚠️ Rust HTTP client initialization failed:', error.message);
+      console.warn('HTTP client initialization failed:', error.message);
       this.isRustAvailable = false;
       globalIsInitialized = false;
       globalInitPromise = null;
