@@ -1,4 +1,4 @@
-import { NativeModules, Platform } from 'react-native';
+import { NativeModules } from 'react-native';
 
 const { SecureHttpCryptoModule } = NativeModules;
 
@@ -638,8 +638,9 @@ class RustHttpClient {
     return base ? `${base}/${url.replace(/^\//, '')}` : url;
   }
 
-  // Performance benchmarking
-  async benchmark(url, iterations = 100) {
+  // Performance benchmarking — runs requests in small concurrent batches
+  // to avoid freezing the JS thread or overwhelming the server.
+  async benchmark(url, iterations = 20, concurrency = 5) {
     const results = {
       iterations,
       totalTime: 0,
@@ -652,30 +653,33 @@ class RustHttpClient {
 
     const startTime = Date.now();
     let successCount = 0;
+    const allDurations = [];
 
-    const requests = Array(iterations).fill().map(() => ({ url, method: 'GET' }));
+    // Run in chunks of `concurrency` to avoid freezing
+    for (let i = 0; i < iterations; i += concurrency) {
+      const chunk = Math.min(concurrency, iterations - i);
+      const requests = Array.from({ length: chunk }, () => ({ url, method: 'GET' }));
 
-    try {
-      const responses = await this.parallel(requests);
-
-      responses.forEach(response => {
-        if (response.status >= 200 && response.status < 300) {
-          successCount++;
-        }
-
-        const duration = response.duration || 0;
-        results.minTime = Math.min(results.minTime, duration);
-        results.maxTime = Math.max(results.maxTime, duration);
-      });
-
-      results.totalTime = Date.now() - startTime;
-      results.avgTime = results.totalTime / iterations;
-      results.successRate = (successCount / iterations) * 100;
-      results.throughput = (successCount / results.totalTime) * 1000; // requests per second
-
-    } catch (error) {
-      console.error('Benchmark failed:', error.message);
+      try {
+        const responses = await Promise.all(requests.map(req => this.request(req)));
+        responses.forEach(response => {
+          if (response.status >= 200 && response.status < 300) successCount++;
+          const duration = response.duration || 0;
+          allDurations.push(duration);
+          results.minTime = Math.min(results.minTime, duration);
+          results.maxTime = Math.max(results.maxTime, duration);
+        });
+      } catch (error) {
+        console.warn('Benchmark chunk failed:', error.message);
+      }
     }
+
+    results.totalTime   = Date.now() - startTime;
+    results.avgTime     = allDurations.length
+      ? allDurations.reduce((a, b) => a + b, 0) / allDurations.length
+      : 0;
+    results.successRate = (successCount / iterations) * 100;
+    results.throughput  = (successCount / results.totalTime) * 1000;
 
     return results;
   }
@@ -706,14 +710,14 @@ export function createRustHttpClient(config = {}) {
 let _rustHttpInstance = null;
 
 export const rustHttp = new Proxy({}, {
-  get(target, prop) {
+  get(_target, prop) {
     if (!_rustHttpInstance || _rustHttpInstance._disposed) {
       _rustHttpInstance = createRustHttpClient({
         enableCaching: true,
         enableCompression: true,
         http2PriorKnowledge: true,
         maxConnections: 200,
-        retryAttempts: 3,
+        retryAttempts: 2,
       });
     }
 

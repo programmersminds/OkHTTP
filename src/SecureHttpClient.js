@@ -154,13 +154,18 @@ class SecureHttpClient {
     var self = this;
     return new Promise(function(resolve, reject) {
       var xhr = new XMLHttpRequest();
+      var settled = false;
 
       var timeoutId = setTimeout(function() {
+        if (settled) return;
+        settled = true;
         xhr.abort();
         reject(makeError("Request timed out", requestConfig, null));
       }, requestConfig.timeout || self.timeout);
 
-      xhr.onload = async function() {
+      xhr.onload = function() {
+        if (settled) return;
+        settled = true;
         clearTimeout(timeoutId);
 
         var data;
@@ -174,34 +179,42 @@ class SecureHttpClient {
           config: requestConfig,
         };
 
-        // Run response interceptors
-        for (var i = 0; i < self.interceptors.response.length; i++) {
-          try {
-            result = await self.interceptors.response[i](result);
-          } catch (e) {
-            // Interceptor error — continue with result
-          }
-        }
-
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve(result);
-        } else {
-          var error = makeError("Request failed with status " + xhr.status, requestConfig, result);
-          for (var j = 0; j < self.interceptors.error.length; j++) {
-            try {
-              var handled = await self.interceptors.error[j](error);
-              if (handled !== undefined) { resolve(handled); return; }
-            } catch (e) {
-              reject(e); return;
+        // Run response interceptors and resolve/reject asynchronously
+        // to avoid blocking the XHR callback
+        Promise.resolve()
+          .then(async function() {
+            for (var i = 0; i < self.interceptors.response.length; i++) {
+              try { result = await self.interceptors.response[i](result); } catch (e) { /* continue */ }
             }
-          }
-          reject(error);
-        }
+
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve(result);
+            } else {
+              var error = makeError("Request failed with status " + xhr.status, requestConfig, result);
+              for (var j = 0; j < self.interceptors.error.length; j++) {
+                try {
+                  var handled = await self.interceptors.error[j](error);
+                  if (handled !== undefined) { resolve(handled); return; }
+                } catch (e) { reject(e); return; }
+              }
+              reject(error);
+            }
+          })
+          .catch(reject);
       };
 
       xhr.onerror = function() {
+        if (settled) return;
+        settled = true;
         clearTimeout(timeoutId);
         reject(makeError("Network error", requestConfig, null));
+      };
+
+      xhr.ontimeout = function() {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        reject(makeError("Request timed out", requestConfig, null));
       };
 
       xhr.open(requestConfig.method, requestConfig.url);
