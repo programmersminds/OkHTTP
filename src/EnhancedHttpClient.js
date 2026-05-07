@@ -35,6 +35,10 @@ class EnhancedHttpClient {
       cacheHitRate: 0,
     };
 
+    // Expose interceptors at the top level so callers don't need to go
+    // through .rustClient.interceptors — both access patterns work.
+    this.interceptors = this.rustClient.interceptors;
+
     // Initialize network detection
     this._initializeNetworkDetection();
   }

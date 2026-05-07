@@ -248,7 +248,7 @@ class SecureHttpClient {
 
   _buildURL(url) {
     if (url && url.indexOf("http") === 0) return url;
-    return this.baseURL + url;
+    return (this.baseURL || "") + (url || "");
   }
 }
 

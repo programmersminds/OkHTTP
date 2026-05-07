@@ -2,15 +2,11 @@ import { NativeModules, Platform } from 'react-native';
 
 const { SecureHttpCryptoModule } = NativeModules;
 
-// Singleton instance cache to prevent recreation
+
 const instanceCache = new Map();
 let globalInitPromise = null;
 let globalIsInitialized = false;
-
-// Private symbol for controlled instantiation
 const PRIVATE_CONSTRUCTOR_KEY = Symbol('RustHttpClient.constructor');
-
-// Fallback configuration for when Rust module is unavailable
 const DEFAULT_CONFIG = {
   baseURL: '',
   timeout: 30000,
@@ -60,6 +56,7 @@ class RustHttpClient {
     this.interceptors = Object.freeze({
       request: this._createInterceptorManager(),
       response: this._createInterceptorManager(),
+      error: this._createInterceptorManager(),
     });
 
     // Use global initialization to prevent multiple inits
@@ -230,6 +227,21 @@ class RustHttpClient {
       return result;
     } catch (error) {
       this._updateMetrics(requestConfig.url || 'unknown', false, Date.now() - startTime);
+
+      // Apply error interceptors first
+      const errorInterceptors = [];
+      this.interceptors.error.forEach(h => errorInterceptors.push(h));
+
+      for (const handler of errorInterceptors) {
+        if (handler.fulfilled) {
+          try {
+            const handled = await Promise.resolve(handler.fulfilled(error));
+            if (handled !== undefined) return handled;
+          } catch (e) {
+            throw e;
+          }
+        }
+      }
 
       // Apply response error interceptors
       const responseInterceptors = [];
@@ -488,6 +500,7 @@ class RustHttpClient {
     this.metrics.clear();
     this.interceptors.request.clear();
     this.interceptors.response.clear();
+    this.interceptors.error.clear();
     this._disposed = true;
 
     // Remove from cache
@@ -614,9 +627,10 @@ class RustHttpClient {
   }
 
   _buildURL(url) {
-    if (!url) return this.config.baseURL;
+    if (!url) return this.config.baseURL || '';
     if (url.startsWith('http')) return url;
-    return `${this.config.baseURL.replace(/\/$/, '')}/${url.replace(/^\//, '')}`;
+    const base = (this.config.baseURL || '').replace(/\/$/, '');
+    return base ? `${base}/${url.replace(/^\//, '')}` : url;
   }
 
   // Performance benchmarking
