@@ -31,6 +31,9 @@ export interface RustHttpConfig {
   retryDelayMs?: number;
   userAgent?: string;
   headers?: Record<string, string>;
+  /** Internal: stable identity key so two clients with the same baseURL
+   *  are never collapsed into the same cached instance. */
+  _instanceId?: string;
 }
 
 export interface RustHttpResponse<T = any> {

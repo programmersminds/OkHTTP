@@ -25,14 +25,19 @@ const DEFAULT_CONFIG = {
   },
 };
 
-// Generate stable cache key from config
+// Generate stable cache key from config — use a unique symbol per call site
+// so that two clients with the same baseURL are NOT collapsed into one instance.
+// Callers that want to share an instance should call createRustHttpClient once
+// and reuse the returned reference.
+let _instanceCounter = 0;
+
 function generateCacheKey(config) {
-  const key = JSON.stringify({
-    baseURL: config.baseURL || '',
-    timeout: config.timeout || DEFAULT_CONFIG.timeout,
-    maxConnections: config.maxConnections || DEFAULT_CONFIG.maxConnections,
-  });
-  return key;
+  // If the caller explicitly passes an instanceId we honour it (opt-in sharing).
+  // Otherwise every call gets a unique key so interceptors never bleed across clients.
+  if (config._instanceId !== undefined) {
+    return String(config._instanceId);
+  }
+  return `__auto_${_instanceCounter++}`;
 }
 
 class RustHttpClient {
