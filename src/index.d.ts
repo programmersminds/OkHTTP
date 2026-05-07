@@ -66,8 +66,24 @@ export interface BenchmarkResult {
   throughput: number;
 }
 
+export interface HttpInterceptorManager<T = any> {
+  use(fulfilled?: (value: T) => T | Promise<T>, rejected?: (error: any) => any): number;
+  eject(id: number): void;
+  clear(): void;
+  forEach(callback: (handler: any) => void): void;
+  readonly length: number;
+}
+
+export interface RustHttpInterceptors {
+  readonly request: HttpInterceptorManager<HttpRequestConfig>;
+  readonly response: HttpInterceptorManager<RustHttpResponse>;
+}
+
 export class RustHttpClient {
-  constructor(config?: RustHttpConfig);
+  constructor(key: symbol, config?: RustHttpConfig);
+  
+  readonly config: Readonly<RustHttpConfig>;
+  readonly interceptors: Readonly<RustHttpInterceptors>;
   
   request<T = any>(config: HttpRequestConfig): Promise<RustHttpResponse<T>>;
   get<T = any>(url: string, config?: HttpRequestConfig): Promise<RustHttpResponse<T>>;
@@ -87,9 +103,11 @@ export class RustHttpClient {
   
   benchmark(url: string, iterations?: number): Promise<BenchmarkResult>;
   create(config?: RustHttpConfig): RustHttpClient;
+  dispose(): void;
 }
 
 export function createRustHttpClient(config?: RustHttpConfig): RustHttpClient;
+export function clearAllInstances(): void;
 export const rustHttpClient: RustHttpClient;
 
 export interface MonitoringConfig {

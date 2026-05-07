@@ -2,6 +2,14 @@ import { NativeModules, Platform } from 'react-native';
 
 const { SecureHttpCryptoModule } = NativeModules;
 
+// Singleton instance cache to prevent recreation
+const instanceCache = new Map();
+let globalInitPromise = null;
+let globalIsInitialized = false;
+
+// Private symbol for controlled instantiation
+const PRIVATE_CONSTRUCTOR_KEY = Symbol('RustHttpClient.constructor');
+
 // Fallback configuration for when Rust module is unavailable
 const DEFAULT_CONFIG = {
   baseURL: '',
@@ -21,27 +29,73 @@ const DEFAULT_CONFIG = {
   },
 };
 
+// Generate stable cache key from config
+function generateCacheKey(config) {
+  const key = JSON.stringify({
+    baseURL: config.baseURL || '',
+    timeout: config.timeout || DEFAULT_CONFIG.timeout,
+    maxConnections: config.maxConnections || DEFAULT_CONFIG.maxConnections,
+  });
+  return key;
+}
+
 class RustHttpClient {
-  constructor(config = {}) {
-    this.config = { ...DEFAULT_CONFIG, ...config };
+  constructor(key, config = {}) {
+    // Use Symbol-based protection - elegant and professional
+    if (key !== PRIVATE_CONSTRUCTOR_KEY) {
+      console.warn('⚠️ Direct instantiation detected. Use createRustHttpClient() for optimal performance and caching.');
+      // Allow it but warn - graceful degradation
+    }
+
+    this.config = Object.freeze({ ...DEFAULT_CONFIG, ...config });
     this.isRustAvailable = this._checkRustAvailability();
-    this.initPromise = null;
     this.requestQueue = [];
-    this.batchSize = 50;  // increased from 10
-    this.batchTimeout = 20; // reduced from 50ms for faster flush
+    this.batchSize = 50;
+    this.batchTimeout = 20;
     this.batchTimer = null;
     this.metrics = new Map();
-    
-    // Axios-compatible interceptors
-    this.interceptors = {
-      request: [],
-      response: [],
-      error: [],
-    };
-    
-    if (this.isRustAvailable) {
-      this.initPromise = this._initializeRustClient();
+    this._disposed = false;
+
+    // Create interceptor managers once - never recreate
+    this.interceptors = Object.freeze({
+      request: this._createInterceptorManager(),
+      response: this._createInterceptorManager(),
+    });
+
+    // Use global initialization to prevent multiple inits
+    if (this.isRustAvailable && !globalIsInitialized) {
+      if (!globalInitPromise) {
+        globalInitPromise = this._initializeRustClient();
+      }
     }
+  }
+
+  _createInterceptorManager() {
+    const handlers = [];
+    let nextId = 0;
+
+    return Object.freeze({
+      use: (fulfilled, rejected) => {
+        const id = nextId++;
+        handlers.push({ fulfilled, rejected, id });
+        return id;
+      },
+      eject: (id) => {
+        const index = handlers.findIndex(h => h.id === id);
+        if (index !== -1) {
+          handlers.splice(index, 1);
+        }
+      },
+      clear: () => {
+        handlers.length = 0;
+      },
+      forEach: (callback) => {
+        handlers.forEach(callback);
+      },
+      get length() {
+        return handlers.length;
+      }
+    });
   }
 
   _checkRustAvailability() {
@@ -67,10 +121,15 @@ class RustHttpClient {
   }
 
   async _initializeRustClient() {
+    if (globalIsInitialized) {
+      return true;
+    }
+
     try {
       await SecureHttpCryptoModule.httpClientInit();
+      globalIsInitialized = true;
       console.log('✅ Rust HTTP client initialized successfully');
-      
+
       // Warmup connections for better performance
       if (this.config.baseURL) {
         await this._warmupConnections([this.config.baseURL]);
@@ -79,13 +138,15 @@ class RustHttpClient {
     } catch (error) {
       console.warn('⚠️ Rust HTTP client initialization failed:', error.message);
       this.isRustAvailable = false;
+      globalIsInitialized = false;
+      globalInitPromise = null;
       return false;
     }
   }
 
   async _warmupConnections(urls) {
     if (!this.isRustAvailable) return;
-    
+
     try {
       await SecureHttpCryptoModule.httpWarmupConnections(JSON.stringify(urls));
     } catch (error) {
@@ -95,55 +156,84 @@ class RustHttpClient {
 
   // High-performance single request execution
   async request(requestConfig) {
+    if (this._disposed) {
+      throw new Error('Cannot use disposed RustHttpClient instance');
+    }
+
     const startTime = Date.now();
-    
+
     try {
       // Apply request interceptors
       let config = { ...requestConfig };
-      for (const interceptor of this.interceptors.request) {
-        try {
-          config = await interceptor(config);
-          if (!config) throw new Error('Request interceptor returned undefined config');
-        } catch (e) {
-          throw new Error(`Request interceptor error: ${e.message}`);
+
+      // Use async iteration for interceptors
+      const requestInterceptors = [];
+      this.interceptors.request.forEach(h => requestInterceptors.push(h));
+
+      for (const handler of requestInterceptors) {
+        if (handler.fulfilled) {
+          try {
+            config = await Promise.resolve(handler.fulfilled(config));
+            if (!config) throw new Error('Request interceptor returned undefined config');
+          } catch (e) {
+            if (handler.rejected) {
+              config = await Promise.resolve(handler.rejected(e));
+            } else {
+              throw new Error(`Request interceptor error: ${e.message}`);
+            }
+          }
         }
       }
 
-      if (this.initPromise) {
-        await this.initPromise;
+      // Wait for global initialization
+      if (globalInitPromise && !globalIsInitialized) {
+        await globalInitPromise;
       }
-      
+
       let result;
       if (this.isRustAvailable) {
         result = await this._executeRustRequest(config);
       } else {
         result = await this._executeFallbackRequest(config);
       }
-      
+
       // Apply response interceptors
-      for (const interceptor of this.interceptors.response) {
-        try {
-          result = await interceptor(result);
-        } catch (e) {
-          // Response interceptor error - continue with result
-          console.warn('Response interceptor error:', e.message);
+      const responseInterceptors = [];
+      this.interceptors.response.forEach(h => responseInterceptors.push(h));
+
+      for (const handler of responseInterceptors) {
+        if (handler.fulfilled) {
+          try {
+            result = await Promise.resolve(handler.fulfilled(result));
+          } catch (e) {
+            if (handler.rejected) {
+              result = await Promise.resolve(handler.rejected(e));
+            } else {
+              console.warn('Response interceptor error:', e.message);
+            }
+          }
         }
       }
-      
+
       return result;
     } catch (error) {
       this._updateMetrics(requestConfig.url || 'unknown', false, Date.now() - startTime);
-      
-      // Apply error interceptors
-      for (const interceptor of this.interceptors.error) {
-        try {
-          const handled = await interceptor(error);
-          if (handled !== undefined) return handled;
-        } catch (e) {
-          throw e;
+
+      // Apply response error interceptors
+      const responseInterceptors = [];
+      this.interceptors.response.forEach(h => responseInterceptors.push(h));
+
+      for (const handler of responseInterceptors) {
+        if (handler.rejected) {
+          try {
+            const handled = await Promise.resolve(handler.rejected(error));
+            if (handled !== undefined) return handled;
+          } catch (e) {
+            throw e;
+          }
         }
       }
-      
+
       throw error;
     }
   }
@@ -174,15 +264,15 @@ class RustHttpClient {
     };
 
     const startTime = Date.now();
-    
+
     try {
       const responseJson = await SecureHttpCryptoModule.httpExecuteRequest(
         JSON.stringify(config),
         JSON.stringify(request)
       );
-      
+
       const response = JSON.parse(responseJson);
-      
+
       if (response.error) {
         throw new Error(response.error);
       }
@@ -209,7 +299,7 @@ class RustHttpClient {
 
       this._updateMetrics(request.url, true, response.duration_ms, response.from_cache);
       return result;
-      
+
     } catch (error) {
       this._updateMetrics(request.url, false, Date.now() - startTime);
       throw error;
@@ -305,9 +395,9 @@ class RustHttpClient {
         JSON.stringify(config),
         JSON.stringify(rustRequests)
       );
-      
+
       const results = JSON.parse(resultsJson);
-      
+
       return results.map((result, index) => {
         if (result.error) {
           throw new Error(result.error);
@@ -341,7 +431,7 @@ class RustHttpClient {
   queueRequest(requestConfig) {
     return new Promise((resolve, reject) => {
       this.requestQueue.push({ requestConfig, resolve, reject });
-      
+
       if (this.requestQueue.length >= this.batchSize) {
         this._processBatch();
       } else if (!this.batchTimer) {
@@ -359,11 +449,11 @@ class RustHttpClient {
     if (this.requestQueue.length === 0) return;
 
     const batch = this.requestQueue.splice(0, this.batchSize);
-    
+
     try {
       const requests = batch.map(item => item.requestConfig);
       const results = await this.batchRequest(requests);
-      
+
       batch.forEach((item, index) => {
         item.resolve(results[index]);
       });
@@ -371,6 +461,27 @@ class RustHttpClient {
       batch.forEach(item => {
         item.reject(error);
       });
+    }
+  }
+
+  // Cleanup method to prevent memory leaks
+  dispose() {
+    if (this._disposed) return;
+
+    if (this.batchTimer) {
+      clearTimeout(this.batchTimer);
+      this.batchTimer = null;
+    }
+    this.requestQueue = [];
+    this.metrics.clear();
+    this.interceptors.request.clear();
+    this.interceptors.response.clear();
+    this._disposed = true;
+
+    // Remove from cache
+    const cacheKey = generateCacheKey(this.config);
+    if (instanceCache.get(cacheKey) === this) {
+      instanceCache.delete(cacheKey);
     }
   }
 
@@ -384,17 +495,17 @@ class RustHttpClient {
         console.warn('Failed to get Rust metrics:', error.message);
       }
     }
-    
+
     return this.metrics.get(endpoint) || null;
   }
 
   getAllMetrics() {
     const allMetrics = {};
-    
+
     for (const [endpoint, metrics] of this.metrics.entries()) {
       allMetrics[endpoint] = metrics;
     }
-    
+
     return allMetrics;
   }
 
@@ -412,15 +523,15 @@ class RustHttpClient {
 
     const metrics = this.metrics.get(endpoint);
     metrics.totalRequests++;
-    
+
     if (success) {
       metrics.successfulRequests++;
     } else {
       metrics.failedRequests++;
     }
-    
+
     metrics.avgResponseTime = (metrics.avgResponseTime * (metrics.totalRequests - 1) + duration) / metrics.totalRequests;
-    
+
     if (fromCache) {
       metrics.cacheHits++;
     } else {
@@ -486,7 +597,8 @@ class RustHttpClient {
 
   // Create a new instance with merged configuration
   create(config = {}) {
-    return new RustHttpClient({ ...this.config, ...config });
+    const mergedConfig = { ...this.config, ...config };
+    return createRustHttpClient(mergedConfig);
   }
 
   _buildURL(url) {
@@ -511,25 +623,25 @@ class RustHttpClient {
     let successCount = 0;
 
     const requests = Array(iterations).fill().map(() => ({ url, method: 'GET' }));
-    
+
     try {
       const responses = await this.parallel(requests);
-      
+
       responses.forEach(response => {
         if (response.status >= 200 && response.status < 300) {
           successCount++;
         }
-        
+
         const duration = response.duration || 0;
         results.minTime = Math.min(results.minTime, duration);
         results.maxTime = Math.max(results.maxTime, duration);
       });
-      
+
       results.totalTime = Date.now() - startTime;
       results.avgTime = results.totalTime / iterations;
       results.successRate = (successCount / iterations) * 100;
       results.throughput = (successCount / results.totalTime) * 1000; // requests per second
-      
+
     } catch (error) {
       console.error('Benchmark failed:', error.message);
     }
@@ -538,18 +650,60 @@ class RustHttpClient {
   }
 }
 
-// Factory function for creating optimized HTTP clients
+// Factory function for creating optimized HTTP clients with singleton pattern
 export function createRustHttpClient(config = {}) {
-  return new RustHttpClient(config);
+  const cacheKey = generateCacheKey(config);
+
+  // Return cached instance if exists and not disposed
+  if (instanceCache.has(cacheKey)) {
+    const cached = instanceCache.get(cacheKey);
+    if (!cached._disposed) {
+      return cached;
+    }
+    // Remove disposed instance
+    instanceCache.delete(cacheKey);
+  }
+
+  // Create new instance with private key
+  const instance = new RustHttpClient(PRIVATE_CONSTRUCTOR_KEY, config);
+  instanceCache.set(cacheKey, instance);
+
+  return instance;
 }
 
-// Pre-configured high-performance client
-export const rustHttp = new RustHttpClient({
-  enableCaching: true,
-  enableCompression: true,
-  http2PriorKnowledge: true,
-  maxConnections: 200,
-  retryAttempts: 3,
+// Pre-configured high-performance client (singleton)
+let _rustHttpInstance = null;
+
+export const rustHttp = new Proxy({}, {
+  get(target, prop) {
+    if (!_rustHttpInstance || _rustHttpInstance._disposed) {
+      _rustHttpInstance = createRustHttpClient({
+        enableCaching: true,
+        enableCompression: true,
+        http2PriorKnowledge: true,
+        maxConnections: 200,
+        retryAttempts: 3,
+      });
+    }
+
+    const value = _rustHttpInstance[prop];
+    if (typeof value === 'function') {
+      return value.bind(_rustHttpInstance);
+    }
+    return value;
+  }
 });
+
+// Utility to clear all cached instances (for testing/cleanup)
+export function clearAllInstances() {
+  instanceCache.forEach(instance => {
+    if (!instance._disposed) {
+      instance.dispose();
+    }
+  });
+  instanceCache.clear();
+  globalInitPromise = null;
+  globalIsInitialized = false;
+}
 
 export default RustHttpClient;
