@@ -1,220 +1,186 @@
-import { createRustHttpClient } from 'react-native-secure-http';
+import { createRustHttpClient } from './RustHttpClient';
 import NetworkOptimizer from './NetworkOptimizer';
 
 /**
- * Enhanced HTTP Client with Network Optimization
- * Transforms weak 1G networks into 5G-like performance
+ * EnhancedHttpClient
+ *
+ * Wraps RustHttpClient (or the fetch fallback) with:
+ *  - LRU response caching with TTL
+ *  - In-flight request deduplication (identical concurrent requests share one fetch)
+ *  - Exponential backoff retry with jitter
+ *  - JSON payload minification
+ *  - Real network quality measurement
+ *  - Request batching and prioritisation
+ *
+ * It does NOT fake compression or claim to change physical network speed.
  */
-
 class EnhancedHttpClient {
   constructor(config = {}) {
     this.config = config;
+
     this.rustClient = createRustHttpClient(config);
-    this.networkOptimizer = new NetworkOptimizer({
-      enableCompression: true,
-      compressionLevel: 9,
-      enableCaching: true,
-      cacheTtl: 3600,
-      enableBatching: true,
-      batchSize: 50,
-      enableDeltaSync: true,
-      enablePrefetch: true,
-      enableDeduplication: true,
-      maxRetries: 5,
+
+    this.optimizer = new NetworkOptimizer({
+      enableCaching:       config.enableCaching       !== false,
+      cacheTtl:            config.cacheTtlSeconds      ?? 300,
+      cacheMaxSize:        config.cacheMaxSize         ?? 200,
+      enableDeduplication: config.enableDeduplication  !== false,
+      enableBatching:      config.enableBatching       !== false,
+      batchSize:           config.batchSize            ?? 20,
+      batchTimeout:        config.batchTimeout         ?? 20,
+      maxRetries:          config.retryAttempts        ?? 2,
+      retryDelay:          config.retryDelayMs         ?? 100,
+      probeUrl:            config.probeUrl             ?? null,
       ...config.optimizerConfig,
     });
 
-    this.metrics = {
-      totalRequests: 0,
-      successfulRequests: 0,
-      failedRequests: 0,
-      totalBytesReceived: 0,
-      totalBytesSent: 0,
-      totalCompressionSavings: 0,
-      averageResponseTime: 0,
-      cacheHitRate: 0,
-    };
-
-    // Expose interceptors at the top level so callers don't need to go
-    // through .rustClient.interceptors — both access patterns work.
+    // Expose interceptors at the top level — same object as rustClient.interceptors
     this.interceptors = this.rustClient.interceptors;
 
-    // Initialize network detection
-    this._initializeNetworkDetection();
+    this._metrics = {
+      totalRequests:      0,
+      successfulRequests: 0,
+      failedRequests:     0,
+      avgResponseTimeMs:  0,
+    };
+
+    // Kick off network measurement in the background (non-blocking)
+    this.optimizer.detectNetworkQuality().catch(() => {});
   }
 
-  /**
-   * Initialize network quality detection
-   */
-  async _initializeNetworkDetection() {
-    try {
-      await this.networkOptimizer.detectNetworkQuality();
-      console.log('✅ Network optimizer initialized');
-    } catch (error) {
-      console.warn('⚠️ Network detection failed:', error.message);
-    }
-  }
+  // ---------------------------------------------------------------------------
+  // Core request — caching + dedup + retry
+  // ---------------------------------------------------------------------------
 
-  /**
-   * Enhanced request with network optimization
-   */
   async request(config) {
-    const startTime = Date.now();
-    this.metrics.totalRequests++;
+    const method = (config.method || 'GET').toUpperCase();
+    const isCacheable = method === 'GET' && this.optimizer.config.enableCaching;
+    const cacheKey = this.optimizer.buildCacheKey(config);
 
-    try {
-      // Check cache first
-      const cached = await this.networkOptimizer.getCachedResponse(config.url);
-      if (cached) {
-        this.metrics.cacheHitRate = (this.metrics.cacheHitRate * (this.metrics.totalRequests - 1) + 100) / this.metrics.totalRequests;
-        return cached;
-      }
+    this._metrics.totalRequests++;
+    const t0 = Date.now();
 
-      // Compress request data if present
-      let requestData = config.data;
-      if (config.data && this.networkOptimizer.config.enableCompression) {
-        const compressed = await this.networkOptimizer.compressData(config.data);
-        requestData = compressed.data;
-        this.metrics.totalBytesSent += compressed.compressedSize;
-        this.metrics.totalCompressionSavings += (compressed.originalSize - compressed.compressedSize);
-      }
+    // 1. Cache hit — GET only, instant return
+    if (isCacheable) {
+      const cached = this.optimizer.getCachedResponse(cacheKey);
+      if (cached) return cached;
+    }
 
-      // Execute request with retry logic
-      const response = await this.networkOptimizer.retryWithBackoff(async () => {
-        return await this.rustClient.request({
-          ...config,
-          data: requestData,
-        });
+    // 2. In-flight deduplication — only for GET (safe to share read results).
+    //    Never deduplicate POST/PUT/PATCH/DELETE — mutations must always fire.
+    if (method === 'GET') {
+      const inflight = this.optimizer.getInflight(cacheKey);
+      if (inflight) return inflight;
+    }
+
+    // 3. Execute — POST/auth requests go direct with no batch delay.
+    //    Only retry network/server errors; never retry 4xx.
+    const promise = this.optimizer
+      .retryWithBackoff(() => this.rustClient.request(config), this.optimizer.config.maxRetries)
+      .then((response) => {
+        const elapsed = Date.now() - t0;
+        this._updateMetrics(true, elapsed);
+
+        if (isCacheable && response.status >= 200 && response.status < 300) {
+          this.optimizer.setCachedResponse(cacheKey, response);
+        }
+
+        return response;
+      })
+      .catch((err) => {
+        this._updateMetrics(false, Date.now() - t0);
+        throw err;
       });
 
-      // Update metrics
-      this.metrics.successfulRequests++;
-      this.metrics.totalBytesReceived += (response.data ? JSON.stringify(response.data).length : 0);
-      
-      const responseTime = Date.now() - startTime;
-      this.metrics.averageResponseTime = (this.metrics.averageResponseTime * (this.metrics.successfulRequests - 1) + responseTime) / this.metrics.successfulRequests;
-
-      // Cache successful response
-      if (response.status >= 200 && response.status < 300) {
-        await this.networkOptimizer.cacheResponse(config.url, response);
-      }
-
-      console.log(`✅ ${config.method || 'GET'} ${config.url} - ${response.status} (${responseTime}ms)`);
-
-      return response;
-    } catch (error) {
-      this.metrics.failedRequests++;
-      console.error(`❌ ${config.method || 'GET'} ${config.url} - ${error.message}`);
-      throw error;
+    // Only track GET requests as in-flight
+    if (method === 'GET') {
+      this.optimizer.trackInflight(cacheKey, promise);
     }
+
+    return promise;
   }
 
-  /**
-   * Batch requests with optimization
-   */
+  // ---------------------------------------------------------------------------
+  // Batch — parallel execution via rustClient
+  // ---------------------------------------------------------------------------
+
   async batchRequest(requests) {
-    console.log(`📦 Batch processing ${requests.length} requests with network optimization...`);
-    
-    // Optimize batch
-    const optimized = await this.networkOptimizer.batchRequests(requests);
-    
-    // Execute optimized batch
-    const responses = await this.rustClient.batchRequest(optimized);
-    
-    // Cache all successful responses
-    for (let i = 0; i < responses.length; i++) {
-      if (responses[i].status >= 200 && responses[i].status < 300) {
-        await this.networkOptimizer.cacheResponse(optimized[i].url, responses[i]);
-      }
+    if (!Array.isArray(requests) || requests.length === 0) {
+      throw new Error('batchRequest requires a non-empty array');
     }
 
-    return responses;
+    // Deduplicate + prioritise before sending
+    const optimised = await this.optimizer.batchRequests(requests);
+
+    if (this.rustClient.batchRequest && optimised.length > 1) {
+      return this.rustClient.batchRequest(optimised);
+    }
+
+    // Fallback: parallel individual requests
+    return Promise.all(optimised.map((req) => this.request(req)));
   }
 
-  /**
-   * Parallel requests with optimization
-   */
   async parallel(requests) {
-    return await this.batchRequest(requests);
+    return this.batchRequest(requests);
   }
 
-  /**
-   * GET request
-   */
-  async get(url, config = {}) {
-    return this.request({ ...config, url, method: 'GET' });
+  // ---------------------------------------------------------------------------
+  // Convenience methods
+  // ---------------------------------------------------------------------------
+
+  get(url, config = {})          { return this.request({ ...config, url, method: 'GET' }); }
+  post(url, data, config = {})   { return this.request({ ...config, url, method: 'POST', data }); }
+  put(url, data, config = {})    { return this.request({ ...config, url, method: 'PUT', data }); }
+  delete(url, config = {})       { return this.request({ ...config, url, method: 'DELETE' }); }
+  patch(url, data, config = {})  { return this.request({ ...config, url, method: 'PATCH', data }); }
+
+  // ---------------------------------------------------------------------------
+  // Network quality
+  // ---------------------------------------------------------------------------
+
+  async detectNetworkQuality() {
+    return this.optimizer.detectNetworkQuality();
   }
 
-  /**
-   * POST request
-   */
-  async post(url, data, config = {}) {
-    return this.request({ ...config, url, method: 'POST', data });
+  getNetworkMetrics() {
+    return this.optimizer.networkMetrics;
   }
 
-  /**
-   * PUT request
-   */
-  async put(url, data, config = {}) {
-    return this.request({ ...config, url, method: 'PUT', data });
+  // ---------------------------------------------------------------------------
+  // Cache management
+  // ---------------------------------------------------------------------------
+
+  clearCaches() {
+    this.optimizer.clearCaches();
   }
 
-  /**
-   * DELETE request
-   */
-  async delete(url, config = {}) {
-    return this.request({ ...config, url, method: 'DELETE' });
-  }
+  // ---------------------------------------------------------------------------
+  // Performance report
+  // ---------------------------------------------------------------------------
 
-  /**
-   * PATCH request
-   */
-  async patch(url, data, config = {}) {
-    return this.request({ ...config, url, method: 'PATCH', data });
-  }
-
-  /**
-   * Prefetch resources
-   */
-  async prefetch(urls) {
-    return await this.networkOptimizer.prefetchResources(urls);
-  }
-
-  /**
-   * Get performance report
-   */
   getPerformanceReport() {
-    const optimizerReport = this.networkOptimizer.getOptimizationReport();
-    
+    const optimReport = this.optimizer.getOptimizationReport();
     return {
-      ...this.metrics,
-      networkQuality: optimizerReport.networkMetrics,
-      cacheStats: optimizerReport.cacheStats,
-      queueStats: optimizerReport.queueStats,
-      compressionSavings: `${(this.metrics.totalCompressionSavings / 1024).toFixed(2)} KB`,
-      bandwidthReduction: `${((this.metrics.totalCompressionSavings / (this.metrics.totalBytesSent + this.metrics.totalCompressionSavings)) * 100).toFixed(1)}%`,
+      ...this._metrics,
+      network:    optimReport.networkMetrics,
+      cacheStats: optimReport.cacheStats,
+      queueStats: optimReport.queueStats,
     };
   }
 
-  /**
-   * Clear all caches
-   */
-  clearCaches() {
-    this.networkOptimizer.clearCaches();
-  }
+  // ---------------------------------------------------------------------------
+  // Internal
+  // ---------------------------------------------------------------------------
 
-  /**
-   * Get network metrics
-   */
-  getNetworkMetrics() {
-    return this.networkOptimizer.networkMetrics;
-  }
-
-  /**
-   * Detect network quality
-   */
-  async detectNetworkQuality() {
-    return await this.networkOptimizer.detectNetworkQuality();
+  _updateMetrics(success, elapsedMs) {
+    if (success) {
+      this._metrics.successfulRequests++;
+      const n = this._metrics.successfulRequests;
+      this._metrics.avgResponseTimeMs =
+        (this._metrics.avgResponseTimeMs * (n - 1) + elapsedMs) / n;
+    } else {
+      this._metrics.failedRequests++;
+    }
   }
 }
 

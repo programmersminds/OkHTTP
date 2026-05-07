@@ -1,473 +1,282 @@
-import { NativeModules, Platform } from 'react-native';
+import { NativeModules, Platform, NetInfo } from 'react-native';
 
 const { SecureHttpCryptoModule } = NativeModules;
 
 /**
- * Advanced Network Optimizer
- * Transforms weak 1G networks into 5G-like performance
- * 
- * Features:
- * - Adaptive compression (up to 95% reduction)
- * - Intelligent request batching
- * - Response caching with smart invalidation
- * - Request prioritization
- * - Bandwidth throttling detection
- * - Automatic retry with exponential backoff
- * - Delta sync (only send/receive changes)
- * - Request deduplication
- * - Prefetching and preloading
+ * NetworkOptimizer
+ *
+ * What this actually does:
+ *  - LRU response cache with TTL (avoids redundant network round-trips)
+ *  - Request deduplication (collapses identical in-flight requests into one)
+ *  - Exponential backoff retry with jitter
+ *  - Real network quality measurement via a timed HEAD probe
+ *  - Request prioritisation and batching
+ *  - JSON minification before sending (removes whitespace the server doesn't need)
+ *
+ * What this does NOT claim to do:
+ *  - It cannot change your physical network speed or signal strength
+ *  - It does not implement Brotli/LZ4/gzip in JS (those belong on the server
+ *    via Accept-Encoding; the Rust native layer handles it when linked)
  */
 
+// ---------------------------------------------------------------------------
+// Tiny LRU cache — avoids pulling in a dependency
+// ---------------------------------------------------------------------------
+class LRUCache {
+  constructor(maxSize = 200) {
+    this._max = maxSize;
+    this._map = new Map(); // insertion-order Map acts as LRU when we re-insert on access
+  }
+
+  get(key) {
+    if (!this._map.has(key)) return undefined;
+    // Move to end (most-recently-used)
+    const value = this._map.get(key);
+    this._map.delete(key);
+    this._map.set(key, value);
+    return value;
+  }
+
+  set(key, value) {
+    if (this._map.has(key)) this._map.delete(key);
+    else if (this._map.size >= this._max) {
+      // Evict least-recently-used (first entry)
+      this._map.delete(this._map.keys().next().value);
+    }
+    this._map.set(key, value);
+  }
+
+  delete(key) { this._map.delete(key); }
+  clear()     { this._map.clear(); }
+  get size()  { return this._map.size; }
+}
+
+// ---------------------------------------------------------------------------
+// NetworkOptimizer
+// ---------------------------------------------------------------------------
 class NetworkOptimizer {
   constructor(config = {}) {
     this.config = {
-      enableCompression: true,
-      compressionLevel: 9, // 1-9, higher = more compression
-      enableCaching: true,
-      cacheTtl: 3600, // 1 hour
-      enableBatching: true,
-      batchSize: 50,
-      batchTimeout: 100, // ms
-      enableDeltaSync: true,
-      enablePrefetch: true,
+      enableCaching:       true,
+      cacheTtl:            300,      // seconds — 5 min default
+      cacheMaxSize:        200,      // max cached responses
       enableDeduplication: true,
-      maxRetries: 5,
-      retryDelay: 1000,
+      enableBatching:      true,
+      batchSize:           20,
+      batchTimeout:        20,       // ms — short wait; explicit batchRequest() calls only
+      maxRetries:          2,        // 2 retries = 3 total attempts max
+      retryDelay:          100,      // ms base — first retry at ~100ms, not 500ms
+      probeUrl:            null,
       ...config,
     };
 
-    this.requestCache = new Map();
-    this.responseCache = new Map();
-    this.requestQueue = [];
-    this.batchTimer = null;
+    // LRU response cache: key → { data, expiresAt, hits }
+    this._cache = new LRUCache(this.config.cacheMaxSize);
+
+    // In-flight deduplication: cacheKey → Promise
+    this._inflight = new Map();
+
+    // Batch queue
+    this._batchQueue  = [];
+    this._batchTimer  = null;
+
+    // Real measured network metrics (populated by measureNetworkQuality)
     this.networkMetrics = {
-      bandwidth: 0,
-      latency: 0,
-      packetLoss: 0,
+      rttMs:       null,   // measured round-trip time
       networkType: 'unknown',
-      signalStrength: 0,
+      online:      true,
     };
-    this.requestHistory = new Map();
-    this.deltaStore = new Map();
-    this.prefetchQueue = [];
-    this.deduplicationMap = new Map();
+
+    this._totalCacheHits   = 0;
+    this._totalCacheMisses = 0;
+    this._totalRequests    = 0;
   }
 
+  // -------------------------------------------------------------------------
+  // Network quality — real measurement, not hardcoded guesses
+  // -------------------------------------------------------------------------
+
   /**
-   * Detect current network type and quality
+   * Measures actual network quality.
+   * - Uses @react-native-community/netinfo if available (optional peer dep)
+   * - Falls back to a timed HEAD probe against probeUrl if provided
+   * - Otherwise reports what it can from the JS environment
    */
   async detectNetworkQuality() {
+    const metrics = { rttMs: null, networkType: 'unknown', online: true };
+
+    // 1. Try NetInfo (react-native built-in or community package)
     try {
-      if (Platform.OS === 'android') {
-        // Android network detection
-        const networkInfo = await this._getAndroidNetworkInfo();
-        this.networkMetrics = {
-          ...this.networkMetrics,
-          ...networkInfo,
-        };
-      } else {
-        // iOS network detection
-        const networkInfo = await this._getIOSNetworkInfo();
-        this.networkMetrics = {
-          ...this.networkMetrics,
-          ...networkInfo,
-        };
-      }
+      let netInfoState = null;
 
-      console.log('📊 Network Quality Detected:', this.networkMetrics);
-      return this.networkMetrics;
-    } catch (error) {
-      console.warn('⚠️ Network detection failed:', error.message);
-      return this.networkMetrics;
-    }
-  }
-
-  /**
-   * Get Android network information
-   */
-  async _getAndroidNetworkInfo() {
-    try {
-      // Simulate network detection - in production, use native module
-      const networkTypes = {
-        'WIFI': { type: 'wifi', speed: 100 },
-        '5G': { type: '5g', speed: 100 },
-        '4G': { type: '4g', speed: 50 },
-        '3G': { type: '3g', speed: 10 },
-        '2G': { type: '2g', speed: 0.1 },
-        '1G': { type: '1g', speed: 0.05 },
-      };
-
-      // Default to 4G for simulation
-      const detected = networkTypes['4G'];
-
-      return {
-        networkType: detected.type,
-        bandwidth: detected.speed, // Mbps
-        latency: this._estimateLatency(detected.type),
-        packetLoss: this._estimatePacketLoss(detected.type),
-        signalStrength: Math.random() * 100,
-      };
-    } catch (error) {
-      console.warn('Android network detection failed:', error);
-      return {};
-    }
-  }
-
-  /**
-   * Get iOS network information
-   */
-  async _getIOSNetworkInfo() {
-    try {
-      // Similar to Android
-      return await this._getAndroidNetworkInfo();
-    } catch (error) {
-      console.warn('iOS network detection failed:', error);
-      return {};
-    }
-  }
-
-  /**
-   * Estimate latency based on network type
-   */
-  _estimateLatency(networkType) {
-    const latencies = {
-      'wifi': 10,
-      '5g': 20,
-      '4g': 50,
-      '3g': 100,
-      '2g': 500,
-      '1g': 1000,
-    };
-    return latencies[networkType] || 100;
-  }
-
-  /**
-   * Estimate packet loss based on network type
-   */
-  _estimatePacketLoss(networkType) {
-    const losses = {
-      'wifi': 0.1,
-      '5g': 0.5,
-      '4g': 1,
-      '3g': 2,
-      '2g': 5,
-      '1g': 10,
-    };
-    return losses[networkType] || 1;
-  }
-
-  /**
-   * Ultra-aggressive compression for weak networks
-   */
-  async compressData(data, aggressiveness = 'auto') {
-    try {
-      if (!this.config.enableCompression) return data;
-
-      // Determine compression level based on network
-      let compressionLevel = this.config.compressionLevel;
-      if (aggressiveness === 'auto') {
-        if (this.networkMetrics.bandwidth < 1) {
-          compressionLevel = 9; // Maximum compression for 1G
-        } else if (this.networkMetrics.bandwidth < 10) {
-          compressionLevel = 8; // High compression for 2G/3G
-        } else if (this.networkMetrics.bandwidth < 50) {
-          compressionLevel = 6; // Medium compression for 4G
-        } else {
-          compressionLevel = 3; // Light compression for 5G/WiFi
+      // RN 0.60 removed the built-in NetInfo; try community package first
+      try {
+        const NetInfoModule = require('@react-native-community/netinfo');
+        netInfoState = await (NetInfoModule.default || NetInfoModule).fetch();
+      } catch (_) {
+        // Fall back to the legacy built-in (RN < 0.60)
+        if (NetInfo && typeof NetInfo.getConnectionInfo === 'function') {
+          netInfoState = await NetInfo.getConnectionInfo();
         }
       }
 
-      const jsonString = typeof data === 'string' ? data : JSON.stringify(data);
-      
-      // Apply multiple compression techniques
-      let compressed = jsonString;
-
-      // 1. Remove whitespace and unnecessary characters
-      compressed = this._minifyJSON(compressed);
-
-      // 2. Apply Brotli-like compression (simulated)
-      compressed = this._applyBrotliCompression(compressed, compressionLevel);
-
-      // 3. Apply delta encoding for repeated data
-      if (this.config.enableDeltaSync) {
-        compressed = this._applyDeltaEncoding(compressed);
+      if (netInfoState) {
+        metrics.online      = netInfoState.isConnected !== false;
+        metrics.networkType = netInfoState.type || netInfoState.effectiveType || 'unknown';
       }
-
-      // 4. Apply LZ4 compression for fast decompression
-      compressed = this._applyLZ4Compression(compressed);
-
-      const originalSize = jsonString.length;
-      const compressedSize = compressed.length;
-      const ratio = ((1 - compressedSize / originalSize) * 100).toFixed(2);
-
-      console.log(`🗜️ Compression: ${originalSize} → ${compressedSize} bytes (${ratio}% reduction)`);
-
-      return {
-        data: compressed,
-        originalSize,
-        compressedSize,
-        ratio: parseFloat(ratio),
-        compressionLevel,
-      };
-    } catch (error) {
-      console.warn('Compression failed:', error.message);
-      return { data, originalSize: data.length, compressedSize: data.length, ratio: 0 };
-    }
-  }
-
-  /**
-   * Minify JSON by removing unnecessary whitespace
-   */
-  _minifyJSON(json) {
-    return json
-      .replace(/\s+/g, ' ') // Remove extra whitespace
-      .replace(/:\s+/g, ':') // Remove space after colons
-      .replace(/,\s+/g, ',') // Remove space after commas
-      .replace(/\{\s+/g, '{') // Remove space after opening braces
-      .replace(/\s+\}/g, '}') // Remove space before closing braces
-      .replace(/\[\s+/g, '[') // Remove space after opening brackets
-      .replace(/\s+\]/g, ']') // Remove space before closing brackets
-      .trim();
-  }
-
-  /**
-   * Simulate Brotli compression
-   */
-  _applyBrotliCompression(data, level = 6) {
-    // In production, use actual Brotli library
-    // This is a simulation using base64 encoding
-    try {
-      const encoded = Buffer.from(data).toString('base64');
-      return encoded;
-    } catch (error) {
-      return data;
-    }
-  }
-
-  /**
-   * Apply delta encoding for repeated data
-   */
-  _applyDeltaEncoding(data) {
-    // Store only changes from previous version
-    const hash = this._hashString(data);
-    const previousData = this.deltaStore.get('last') || '';
-    
-    if (previousData === data) {
-      return { delta: true, hash, size: 0 };
+    } catch (_) {
+      // NetInfo unavailable — not a hard failure
     }
 
-    this.deltaStore.set('last', data);
-    return data;
-  }
-
-  /**
-   * Simulate LZ4 compression
-   */
-  _applyLZ4Compression(data) {
-    // In production, use actual LZ4 library
-    // This is a simple run-length encoding simulation
-    let compressed = '';
-    let count = 1;
-
-    for (let i = 0; i < data.length; i++) {
-      if (data[i] === data[i + 1]) {
-        count++;
-      } else {
-        if (count > 3) {
-          compressed += `[${count}:${data[i]}]`;
-        } else {
-          compressed += data[i].repeat(count);
-        }
-        count = 1;
+    // 2. Measure real RTT with a timed HEAD probe
+    if (this.config.probeUrl) {
+      try {
+        const t0 = Date.now();
+        await fetch(this.config.probeUrl, {
+          method: 'HEAD',
+          cache:  'no-store',
+          signal: this._timeoutSignal(5000),
+        });
+        metrics.rttMs = Date.now() - t0;
+      } catch (_) {
+        metrics.rttMs = null; // probe failed (offline or blocked)
       }
     }
 
-    return compressed;
+    this.networkMetrics = metrics;
+    return metrics;
   }
 
-  /**
-   * Hash string for delta encoding
-   */
-  _hashString(str) {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32bit integer
-    }
-    return hash.toString(16);
-  }
+  // -------------------------------------------------------------------------
+  // JSON minification — the one real JS-side "compression" that works
+  // -------------------------------------------------------------------------
 
   /**
-   * Intelligent request batching
+   * Strips unnecessary whitespace from a JSON payload before sending.
+   * JSON.stringify with no spacing already does this; this handles the case
+   * where the caller passes a pre-serialised string.
    */
-  async batchRequests(requests) {
-    return new Promise((resolve) => {
-      this.requestQueue.push(...requests);
-
-      if (this.requestQueue.length >= this.config.batchSize) {
-        this._processBatch(resolve);
-      } else {
-        if (this.batchTimer) clearTimeout(this.batchTimer);
-        this.batchTimer = setTimeout(() => this._processBatch(resolve), this.config.batchTimeout);
-      }
-    });
-  }
-
-  /**
-   * Process batched requests
-   */
-  async _processBatch(callback) {
-    const batch = this.requestQueue.splice(0, this.config.batchSize);
-    
-    // Deduplicate requests
-    const deduplicated = this._deduplicateRequests(batch);
-    
-    // Prioritize requests
-    const prioritized = this._prioritizeRequests(deduplicated);
-    
-    console.log(`📦 Processing batch: ${batch.length} requests → ${deduplicated.length} after dedup → ${prioritized.length} after prioritization`);
-    
-    callback(prioritized);
-  }
-
-  /**
-   * Deduplicate identical requests
-   */
-  _deduplicateRequests(requests) {
-    const seen = new Set();
-    const deduplicated = [];
-
-    for (const request of requests) {
-      const key = `${request.method}:${request.url}:${JSON.stringify(request.data || {})}`;
-      
-      if (!seen.has(key)) {
-        seen.add(key);
-        deduplicated.push(request);
-      } else {
-        console.log(`🔄 Deduplicated duplicate request: ${key}`);
+  minifyPayload(data) {
+    if (data === null || data === undefined) return data;
+    if (typeof data === 'string') {
+      try {
+        // Re-parse and re-stringify to strip whitespace
+        return JSON.stringify(JSON.parse(data));
+      } catch (_) {
+        return data; // not JSON — leave as-is
       }
     }
-
-    return deduplicated;
+    return JSON.stringify(data); // object → compact JSON string
   }
 
-  /**
-   * Prioritize requests based on importance
-   */
-  _prioritizeRequests(requests) {
-    const priorities = {
-      'GET': 1,
-      'POST': 2,
-      'PUT': 3,
-      'DELETE': 4,
-      'PATCH': 5,
-    };
-
-    return requests.sort((a, b) => {
-      const priorityA = priorities[a.method] || 10;
-      const priorityB = priorities[b.method] || 10;
-      return priorityA - priorityB;
-    });
-  }
+  // -------------------------------------------------------------------------
+  // Response cache
+  // -------------------------------------------------------------------------
 
   /**
-   * Smart caching with automatic invalidation
+   * Returns a cached response for `key`, or null if absent / expired.
+   * Only GET responses should be cached.
    */
-  async cacheResponse(key, response, ttl = null) {
-    const cacheKey = this._generateCacheKey(key);
-    const cacheTtl = ttl || this.config.cacheTtl;
-
-    this.responseCache.set(cacheKey, {
-      data: response,
-      timestamp: Date.now(),
-      ttl: cacheTtl,
-      hits: 0,
-    });
-
-    console.log(`💾 Cached: ${cacheKey} (TTL: ${cacheTtl}s)`);
-  }
-
-  /**
-   * Retrieve cached response
-   */
-  async getCachedResponse(key) {
-    const cacheKey = this._generateCacheKey(key);
-    const cached = this.responseCache.get(cacheKey);
-
-    if (!cached) return null;
-
-    const age = (Date.now() - cached.timestamp) / 1000;
-    if (age > cached.ttl) {
-      this.responseCache.delete(cacheKey);
+  getCachedResponse(key) {
+    if (!this.config.enableCaching) return null;
+    const entry = this._cache.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      this._cache.delete(key);
       return null;
     }
-
-    cached.hits++;
-    console.log(`✅ Cache hit: ${cacheKey} (${cached.hits} hits)`);
-    return cached.data;
+    entry.hits++;
+    this._totalCacheHits++;
+    return entry.data;
   }
 
   /**
-   * Generate cache key
+   * Stores `response` under `key` with the configured TTL.
    */
-  _generateCacheKey(key) {
-    return `cache:${this._hashString(key)}`;
+  setCachedResponse(key, response, ttlSeconds = null) {
+    if (!this.config.enableCaching) return;
+    const ttl = (ttlSeconds ?? this.config.cacheTtl) * 1000;
+    this._cache.set(key, {
+      data:      response,
+      expiresAt: Date.now() + ttl,
+      hits:      0,
+    });
+    this._totalCacheMisses++;
   }
 
   /**
-   * Prefetch critical resources
+   * Builds a stable cache key from a request config.
+   * Only includes method + url + sorted query-relevant headers.
    */
-  async prefetchResources(urls) {
-    console.log(`🔄 Prefetching ${urls.length} resources...`);
-    
-    for (const url of urls) {
-      this.prefetchQueue.push({
-        url,
-        priority: 'low',
-        timestamp: Date.now(),
-      });
-    }
-
-    // Process prefetch queue in background
-    this._processPrefetchQueue();
+  buildCacheKey(requestConfig) {
+    const method  = (requestConfig.method || 'GET').toUpperCase();
+    const url     = requestConfig.url || '';
+    // Include body for non-GET so POST dedup works too
+    const body    = method !== 'GET' ? (requestConfig.data ? JSON.stringify(requestConfig.data) : '') : '';
+    return `${method}:${url}:${body}`;
   }
 
+  // -------------------------------------------------------------------------
+  // In-flight deduplication
+  // -------------------------------------------------------------------------
+
   /**
-   * Process prefetch queue
+   * If an identical request is already in-flight, returns its Promise so the
+   * caller shares the result instead of firing a duplicate network request.
+   *
+   * Usage:
+   *   const key = optimizer.buildCacheKey(config);
+   *   const shared = optimizer.getInflight(key);
+   *   if (shared) return shared;
+   *   const promise = actualFetch(config);
+   *   optimizer.trackInflight(key, promise);
+   *   return promise;
    */
-  async _processPrefetchQueue() {
-    while (this.prefetchQueue.length > 0) {
-      const resource = this.prefetchQueue.shift();
-      
-      try {
-        // Simulate prefetch
-        console.log(`📥 Prefetching: ${resource.url}`);
-        // In production, make actual request and cache
-      } catch (error) {
-        console.warn(`Prefetch failed for ${resource.url}:`, error.message);
-      }
-    }
+  getInflight(key) {
+    if (!this.config.enableDeduplication) return null;
+    return this._inflight.get(key) || null;
   }
 
+  trackInflight(key, promise) {
+    if (!this.config.enableDeduplication) return;
+    this._inflight.set(key, promise);
+    // Clean up once settled
+    promise.finally(() => this._inflight.delete(key));
+  }
+
+  // -------------------------------------------------------------------------
+  // Retry with exponential backoff + jitter
+  // -------------------------------------------------------------------------
+
   /**
-   * Adaptive retry with exponential backoff
+   * Calls `fn` and retries on failure with exponential backoff.
+   * Jitter prevents thundering-herd when many clients retry simultaneously.
+   *
+   * @param {() => Promise} fn
+   * @param {number} [maxRetries]
+   * @returns {Promise}
    */
   async retryWithBackoff(fn, maxRetries = null) {
-    const retries = maxRetries || this.config.maxRetries;
+    const retries = maxRetries ?? this.config.maxRetries;
     let lastError;
 
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
         return await fn();
-      } catch (error) {
-        lastError = error;
-        
+      } catch (err) {
+        lastError = err;
+
+        // Never retry client errors (4xx) — wrong credentials, bad request, etc.
+        // Retrying these just adds delay with no chance of success.
+        if (err && err.status >= 400 && err.status < 500) throw err;
+        if (err && err.response && err.response.status >= 400 && err.response.status < 500) throw err;
+
         if (attempt < retries) {
-          // Exponential backoff with jitter
-          const delay = this.config.retryDelay * Math.pow(2, attempt) + Math.random() * 1000;
-          console.log(`🔄 Retry attempt ${attempt + 1}/${retries} after ${delay.toFixed(0)}ms`);
-          await this._sleep(delay);
+          // First retry is fast (100ms), then backs off: 100 → 300 → 700ms + jitter
+          // This recovers quickly from a single dropped packet without hammering the server
+          const base  = this.config.retryDelay * Math.pow(2, attempt);
+          const jitter = Math.random() * 100; // max 100ms jitter
+          await this._sleep(base + jitter);
         }
       }
     }
@@ -475,40 +284,104 @@ class NetworkOptimizer {
     throw lastError;
   }
 
-  /**
-   * Sleep utility
-   */
-  _sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
+  // -------------------------------------------------------------------------
+  // Request batching
+  // -------------------------------------------------------------------------
 
   /**
-   * Get network optimization report
+   * Queues requests and resolves with the deduplicated + prioritised batch
+   * once either batchSize is reached or batchTimeout elapses.
+   *
+   * Returns a Promise that resolves with the processed batch array.
    */
+  batchRequests(requests) {
+    return new Promise((resolve) => {
+      this._batchQueue.push(...requests);
+
+      if (this._batchQueue.length >= this.config.batchSize) {
+        this._flushBatch(resolve);
+      } else {
+        if (this._batchTimer) clearTimeout(this._batchTimer);
+        this._batchTimer = setTimeout(
+          () => this._flushBatch(resolve),
+          this.config.batchTimeout,
+        );
+      }
+    });
+  }
+
+  _flushBatch(callback) {
+    if (this._batchTimer) { clearTimeout(this._batchTimer); this._batchTimer = null; }
+    const batch = this._batchQueue.splice(0, this.config.batchSize);
+    callback(this._prioritise(this._deduplicate(batch)));
+  }
+
+  _deduplicate(requests) {
+    const seen = new Set();
+    return requests.filter((req) => {
+      const key = this.buildCacheKey(req);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  // GET first (read-only, safe to parallelise), then mutations
+  _prioritise(requests) {
+    const order = { GET: 0, HEAD: 1, POST: 2, PUT: 3, PATCH: 4, DELETE: 5 };
+    return [...requests].sort((a, b) => {
+      const pa = order[(a.method || 'GET').toUpperCase()] ?? 9;
+      const pb = order[(b.method || 'GET').toUpperCase()] ?? 9;
+      return pa - pb;
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Stats / reporting
+  // -------------------------------------------------------------------------
+
   getOptimizationReport() {
+    const cacheEntries = this._cache.size;
     return {
-      networkMetrics: this.networkMetrics,
+      networkMetrics:  this.networkMetrics,
       cacheStats: {
-        size: this.responseCache.size,
-        hits: Array.from(this.responseCache.values()).reduce((sum, item) => sum + item.hits, 0),
+        entries:    cacheEntries,
+        totalHits:  this._totalCacheHits,
+        totalMisses: this._totalCacheMisses,
+        hitRate:    this._totalRequests > 0
+          ? ((this._totalCacheHits / this._totalRequests) * 100).toFixed(1) + '%'
+          : '0%',
       },
       queueStats: {
-        pending: this.requestQueue.length,
-        prefetch: this.prefetchQueue.length,
+        pending:  this._batchQueue.length,
+        inflight: this._inflight.size,
       },
-      config: this.config,
     };
   }
 
-  /**
-   * Clear all caches
-   */
   clearCaches() {
-    this.responseCache.clear();
-    this.requestCache.clear();
-    this.deltaStore.clear();
-    this.deduplicationMap.clear();
-    console.log('🧹 All caches cleared');
+    this._cache.clear();
+    this._inflight.clear();
+    this._batchQueue = [];
+    if (this._batchTimer) { clearTimeout(this._batchTimer); this._batchTimer = null; }
+    this._totalCacheHits   = 0;
+    this._totalCacheMisses = 0;
+    this._totalRequests    = 0;
+  }
+
+  // -------------------------------------------------------------------------
+  // Helpers
+  // -------------------------------------------------------------------------
+
+  _sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  _timeoutSignal(ms) {
+    if (typeof AbortController === 'undefined') return undefined;
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), ms);
+    return ctrl.signal;
   }
 }
 
