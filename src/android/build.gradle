@@ -17,9 +17,8 @@ android {
         // ---------------------------------------------------------------
         externalNativeBuild {
             cmake {
-                arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
-                // 16KB page alignment must be a linker flag, not a compiler flag
-                ldFlags  "-Wl,-z,max-page-size=16384"
+                arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
+                          "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384"
             }
         }
 
