@@ -3,17 +3,11 @@ package com.securehttp
 import android.content.Context
 import android.util.Log
 import com.facebook.react.modules.network.OkHttpClientFactory
-import com.facebook.react.modules.network.ReactCookieJarContainer
+import com.facebook.react.modules.network.OkHttpClientProvider
 import okhttp3.ConnectionSpec
 import okhttp3.OkHttpClient
 import okhttp3.TlsVersion
-import org.conscrypt.Conscrypt
-import java.security.KeyStore
-import java.security.Security
 import java.util.concurrent.TimeUnit
-import javax.net.ssl.SSLContext
-import javax.net.ssl.TrustManagerFactory
-import javax.net.ssl.X509TrustManager
 
 /**
  * TLSOkHttpClientFactory
@@ -43,41 +37,20 @@ class TLSOkHttpClientFactory(private val context: Context) : OkHttpClientFactory
     constructor() : this(getApplicationContext())
 
     override fun createNewNetworkModuleClient(): OkHttpClient {
+        val providerState = TlsProviderSupport.ensureInstalled(context)
+        val trustManager = TlsProviderSupport.buildTrustManager(providerState.conscryptEnabled)
+        val sslContext = TlsProviderSupport.buildSslContext(trustManager, providerState.conscryptEnabled)
+        val tlsSpecs = buildConnectionSpecs(providerState.conscryptEnabled)
 
-        // Step 1 — Patch the system security provider via Google Play Services.
-        // Fixes SSL handshake failures on Android 5/6 caused by outdated TLS.
-        try {
-            com.google.android.gms.security.ProviderInstaller.installIfNeeded(context)
-        } catch (e: Exception) {
-            Log.w(TAG, "ProviderInstaller unavailable: ${e.message}")
-            // Conscrypt below handles this case
-        }
+        Log.i(
+            TAG,
+            "Creating RN OkHttp client: conscrypt=${providerState.conscryptEnabled}, " +
+                "providerInstaller=${providerState.providerInstallerSucceeded}"
+        )
 
-        // Step 2 — Insert Conscrypt as the top security provider.
-        // Conscrypt ships its own CA bundle, fixing old-device CA issues.
-        val conscryptInstalled = try {
-            Security.insertProviderAt(Conscrypt.newProvider(), 1)
-            true
-        } catch (e: Exception) {
-            Log.w(TAG, "Conscrypt init failed: ${e.message}")
-            false
-        }
-
-        // Step 3 — Build trust manager (Conscrypt's CA bundle preferred).
-        val x509TrustManager = buildTrustManager(conscryptInstalled)
-
-        // Step 4 — Build SSLContext.
-        val sslContext = buildSSLContext(x509TrustManager, conscryptInstalled)
-
-        // Step 5 — TLS 1.2 + 1.3 only, no cleartext.
-        val tlsSpec = ConnectionSpec.Builder(ConnectionSpec.MODERN_TLS)
-            .tlsVersions(TlsVersion.TLS_1_3, TlsVersion.TLS_1_2)
-            .build()
-
-        return OkHttpClient.Builder()
-            .sslSocketFactory(sslContext.socketFactory, x509TrustManager)
-            .connectionSpecs(listOf(tlsSpec))
-            .cookieJar(ReactCookieJarContainer())
+        return OkHttpClientProvider.createClientBuilder(context)
+            .sslSocketFactory(sslContext.socketFactory, trustManager)
+            .connectionSpecs(tlsSpecs)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
@@ -85,38 +58,21 @@ class TLSOkHttpClientFactory(private val context: Context) : OkHttpClientFactory
             .build()
     }
 
-    private fun buildTrustManager(useConscrypt: Boolean): X509TrustManager {
-        if (useConscrypt && Conscrypt.isAvailable()) {
-            try {
-                val tmf = TrustManagerFactory.getInstance(
-                    TrustManagerFactory.getDefaultAlgorithm(),
-                    Conscrypt.newProvider()
-                )
-                tmf.init(null as KeyStore?)
-                val tm = tmf.trustManagers.firstOrNull { it is X509TrustManager }
-                if (tm != null) return tm as X509TrustManager
-            } catch (e: Exception) {
-                Log.w(TAG, "Conscrypt trust manager failed: ${e.message}")
-            }
-        }
-        val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
-        tmf.init(null as KeyStore?)
-        return tmf.trustManagers.first { it is X509TrustManager } as X509TrustManager
-    }
-
-    private fun buildSSLContext(trustManager: X509TrustManager, useConscrypt: Boolean): SSLContext {
-        if (useConscrypt) {
-            try {
-                return SSLContext.getInstance("TLS", Conscrypt.newProvider()).also {
-                    it.init(null, arrayOf(trustManager), null)
+    private fun buildConnectionSpecs(useConscrypt: Boolean): List<ConnectionSpec> {
+        val primarySpec = ConnectionSpec.Builder(ConnectionSpec.MODERN_TLS)
+            .tlsVersions(TlsVersion.TLS_1_2)
+            .apply {
+                if (useConscrypt) {
+                    tlsVersions(TlsVersion.TLS_1_3, TlsVersion.TLS_1_2)
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Conscrypt SSLContext failed, using default: ${e.message}")
             }
-        }
-        return SSLContext.getInstance("TLS").also {
-            it.init(null, arrayOf(trustManager), null)
-        }
+            .build()
+
+        val compatibilitySpec = ConnectionSpec.Builder(ConnectionSpec.COMPATIBLE_TLS)
+            .tlsVersions(TlsVersion.TLS_1_2)
+            .build()
+
+        return listOf(primarySpec, compatibilitySpec)
     }
 
     companion object {
