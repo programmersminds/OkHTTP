@@ -21,10 +21,8 @@ import java.util.concurrent.TimeUnit
  *
  * How this version fixes old devices properly:
  *   1. ProviderInstaller — patches the system TLS provider via Google Play
- *      Services. Fixes missing cipher suites on Android 5/6.
- *   2. Conscrypt — ships its own up-to-date CA bundle and TLS 1.3 stack,
- *      replacing the outdated system TLS on Android 5–9.
- *   3. Falls back gracefully if neither is available.
+ *      Services. Fixes missing cipher suites on older Android versions.
+ *   2. Uses platform trust manager and SSL context after provider update.
  *
  * Security: real certificate validation, no bypass, TLS 1.2+ only.
  */
@@ -38,14 +36,13 @@ class TLSOkHttpClientFactory(private val context: Context) : OkHttpClientFactory
 
     override fun createNewNetworkModuleClient(): OkHttpClient {
         val providerState = TlsProviderSupport.ensureInstalled(context)
-        val trustManager = TlsProviderSupport.buildTrustManager(providerState.conscryptEnabled)
-        val sslContext = TlsProviderSupport.buildSslContext(trustManager, providerState.conscryptEnabled)
-        val tlsSpecs = buildConnectionSpecs(providerState.conscryptEnabled)
+        val trustManager = TlsProviderSupport.buildTrustManager()
+        val sslContext = TlsProviderSupport.buildSslContext(trustManager)
+        val tlsSpecs = buildConnectionSpecs()
 
         Log.i(
             TAG,
-            "Creating RN OkHttp client: conscrypt=${providerState.conscryptEnabled}, " +
-                "providerInstaller=${providerState.providerInstallerSucceeded}"
+            "Creating RN OkHttp client: providerInstaller=${providerState.providerInstallerSucceeded}"
         )
 
         return OkHttpClientProvider.createClientBuilder(context)
@@ -58,14 +55,9 @@ class TLSOkHttpClientFactory(private val context: Context) : OkHttpClientFactory
             .build()
     }
 
-    private fun buildConnectionSpecs(useConscrypt: Boolean): List<ConnectionSpec> {
+    private fun buildConnectionSpecs(): List<ConnectionSpec> {
         val primarySpec = ConnectionSpec.Builder(ConnectionSpec.MODERN_TLS)
-            .tlsVersions(TlsVersion.TLS_1_2)
-            .apply {
-                if (useConscrypt) {
-                    tlsVersions(TlsVersion.TLS_1_3, TlsVersion.TLS_1_2)
-                }
-            }
+            .tlsVersions(TlsVersion.TLS_1_3, TlsVersion.TLS_1_2)
             .build()
 
         val compatibilitySpec = ConnectionSpec.Builder(ConnectionSpec.COMPATIBLE_TLS)

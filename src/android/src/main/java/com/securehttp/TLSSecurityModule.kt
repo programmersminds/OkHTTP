@@ -26,16 +26,10 @@ class TLSSecurityModule(reactContext: ReactApplicationContext) : ReactContextBas
     @ReactMethod
     fun updateSecurityProvider(promise: Promise) {
         try {
-            val state = TlsProviderSupport.ensureInstalled(reactApplicationContext)
-            initializeSSLContext(state.conscryptEnabled)
+            TlsProviderSupport.ensureInstalled(reactApplicationContext)
+            initializeSSLContext()
             Log.d("TLSSecurityModule", "Security provider updated successfully")
-            promise.resolve(
-                if (state.conscryptEnabled) {
-                    "Security provider updated successfully with Conscrypt"
-                } else {
-                    "Security provider updated successfully with platform TLS"
-                }
-            )
+            promise.resolve("Security provider updated successfully with platform TLS")
         } catch (e: GooglePlayServicesRepairableException) {
             Log.e("TLSSecurityModule", "Google Play Services repairable error", e)
             promise.reject("REPAIRABLE_ERROR", "Google Play Services needs update: ${e.message}", e)
@@ -76,7 +70,7 @@ class TLSSecurityModule(reactContext: ReactApplicationContext) : ReactContextBas
             val result = WritableNativeMap()
             result.putBoolean("conscryptInstalled", conscryptInstalled)
             result.putString("topProvider", topProvider)
-            result.putString("tlsVersion", if (conscryptInstalled) "TLS 1.3 Capable" else "TLS 1.2 Only")
+            result.putString("tlsVersion", "TLS 1.2+ (TLS 1.3 on supported devices)")
             
             promise.resolve(result)
         } catch (e: Exception) {
@@ -87,36 +81,27 @@ class TLSSecurityModule(reactContext: ReactApplicationContext) : ReactContextBas
     @ReactMethod
     fun forceTLS13(promise: Promise) {
         try {
-            val state = TlsProviderSupport.ensureInstalled(reactApplicationContext)
-            initializeSSLContext(state.conscryptEnabled)
+            TlsProviderSupport.ensureInstalled(reactApplicationContext)
+            initializeSSLContext()
             
-            Log.d("TLSSecurityModule", "TLS 1.3 enabled with Conscrypt")
-            promise.resolve(
-                if (state.conscryptEnabled) {
-                    "TLS 1.3 enabled via Conscrypt"
-                } else {
-                    "Platform TLS active; TLS 1.3 availability depends on device support"
-                }
-            )
+            Log.d("TLSSecurityModule", "Platform TLS active after provider update")
+            promise.resolve("Platform TLS active; TLS 1.3 availability depends on device support")
         } catch (e: Exception) {
             Log.e("TLSSecurityModule", "Failed to force TLS 1.3", e)
             promise.reject("FORCE_TLS13_FAILED", "Failed to force TLS 1.3: ${e.message}", e)
         }
     }
 
-    private fun initializeSSLContext(useConscrypt: Boolean) {
+    private fun initializeSSLContext() {
         try {
-            val resolvedTrustManager = TlsProviderSupport.buildTrustManager(useConscrypt)
-            val sslContext = TlsProviderSupport.buildSslContext(resolvedTrustManager, useConscrypt)
+            val resolvedTrustManager = TlsProviderSupport.buildTrustManager()
+            val sslContext = TlsProviderSupport.buildSslContext(resolvedTrustManager)
             
             sslSocketFactory = sslContext.socketFactory
             trustManager = resolvedTrustManager
             
             SSLContext.setDefault(sslContext)
-            Log.d(
-                "TLSSecurityModule",
-                if (useConscrypt) "SSL Context initialized with Conscrypt" else "SSL Context initialized with platform TLS"
-            )
+            Log.d("TLSSecurityModule", "SSL Context initialized with platform TLS")
         } catch (e: Exception) {
             Log.e("TLSSecurityModule", "Failed to initialize SSL context", e)
         }
