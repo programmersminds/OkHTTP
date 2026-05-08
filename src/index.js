@@ -1,7 +1,6 @@
 import { NativeModules, Platform } from "react-native";
 import { createSecureHttpClient } from "./SecureHttpClient";
 import { createRustHttpClient, rustHttp } from "./RustHttpClient";
-import { SecureStorage } from "./CryptoUtils";
 import { SecurityValidator, validateSecurityOrThrow } from "./SecurityValidator";
 
 const { TLSSecurityModule } = NativeModules;
@@ -145,8 +144,7 @@ export const rustHttpClient = rustHttp;
 // Ultra-fast Rust-powered HTTP client factory
 export { createRustHttpClient, rustHttp };
 
-// Export crypto and security utilities
-export { SecureStorage };
+// Export security utilities
 export { SecurityValidator, validateSecurityOrThrow };
 
 // Export main HTTP client factory

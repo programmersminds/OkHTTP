@@ -267,6 +267,26 @@ class RustHttpClient {
     }
   }
 
+  // Public HTTP request entrypoint that yields to the event loop before work.
+  // This keeps taps/animations responsive when requests are triggered from UI events.
+  async requestHttp(requestConfig) {
+    return new Promise((resolve, reject) => {
+      const run = () => this.request(requestConfig).then(resolve).catch(reject);
+
+      if (typeof setImmediate === 'function') {
+        setImmediate(run);
+        return;
+      }
+
+      if (typeof queueMicrotask === 'function') {
+        queueMicrotask(run);
+        return;
+      }
+
+      Promise.resolve().then(run).catch(reject);
+    });
+  }
+
   async _executeRustRequest(requestConfig) {
     const config = {
       base_url: this.config.baseURL,
@@ -595,23 +615,23 @@ class RustHttpClient {
 
   // Convenience methods with performance optimizations
   async get(url, config = {}) {
-    return this.request({ ...config, url, method: 'GET' });
+    return this.requestHttp({ ...config, url, method: 'GET' });
   }
 
   async post(url, data, config = {}) {
-    return this.request({ ...config, url, method: 'POST', data });
+    return this.requestHttp({ ...config, url, method: 'POST', data });
   }
 
   async put(url, data, config = {}) {
-    return this.request({ ...config, url, method: 'PUT', data });
+    return this.requestHttp({ ...config, url, method: 'PUT', data });
   }
 
   async delete(url, config = {}) {
-    return this.request({ ...config, url, method: 'DELETE' });
+    return this.requestHttp({ ...config, url, method: 'DELETE' });
   }
 
   async patch(url, data, config = {}) {
-    return this.request({ ...config, url, method: 'PATCH', data });
+    return this.requestHttp({ ...config, url, method: 'PATCH', data });
   }
 
   // Parallel request execution for maximum throughput

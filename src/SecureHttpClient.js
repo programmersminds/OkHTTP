@@ -1,5 +1,3 @@
-import CryptoUtils from "./CryptoUtils";
-
 var hasFetch = typeof fetch !== "undefined";
 
 function makeError(message, config, response) {
@@ -15,8 +13,6 @@ class SecureHttpClient {
     this.baseURL = config.baseURL || "";
     this.headers = config.headers || {};
     this.timeout = config.timeout || 30000;
-    this.cryptoKey = config.cryptoKey || null;
-    this.enableCrypto = config.enableCrypto || false;
     this.interceptors = {
       request: [],
       response: [],
@@ -30,8 +26,6 @@ class SecureHttpClient {
       baseURL: config.baseURL || this.baseURL,
       headers: Object.assign({}, this.headers, config.headers),
       timeout: config.timeout || this.timeout,
-      cryptoKey: config.cryptoKey || this.cryptoKey,
-      enableCrypto: config.enableCrypto !== undefined ? config.enableCrypto : this.enableCrypto,
     });
   }
 
@@ -47,19 +41,6 @@ class SecureHttpClient {
     var method = (config.method || "GET").toUpperCase();
     var requestConfig = Object.assign({}, config, { url: url, headers: headers, method: method });
 
-    // Apply crypto if enabled — degrade gracefully if native module unavailable
-    if (this.enableCrypto && this.cryptoKey && requestConfig.data) {
-      try {
-        var timestamp = Math.floor(Date.now() / 1000);
-        var nonce = CryptoUtils.generateNonce();
-        var encrypted = await CryptoUtils.encrypt(JSON.stringify(requestConfig.data), this.cryptoKey);
-        var signature = await CryptoUtils.sign(encrypted, timestamp, this.cryptoKey);
-        requestConfig.data = { data: encrypted, timestamp: timestamp, signature: signature, nonce: nonce };
-      } catch (e) {
-        // Native Rust crypto module unavailable — send data unencrypted
-      }
-    }
-
     // Run request interceptors — single function per entry, no error handler arg
     for (var i = 0; i < this.interceptors.request.length; i++) {
       try {
@@ -74,16 +55,6 @@ class SecureHttpClient {
       var result = hasFetch
         ? await this._fetchRequest(requestConfig)
         : await this._xhrRequest(requestConfig);
-
-      // Decrypt response if crypto enabled
-      if (this.enableCrypto && this.cryptoKey && result.data && result.data.data) {
-        try {
-          var decrypted = await CryptoUtils.decrypt(result.data.data, this.cryptoKey);
-          result.data = JSON.parse(decrypted);
-        } catch (e) {
-          // Native crypto unavailable — return raw response data
-        }
-      }
 
       return result;
     } catch (e) {
@@ -129,7 +100,7 @@ class SecureHttpClient {
       try {
         result = await this.interceptors.response[i](result);
       } catch (e) {
-        // Interceptor error (e.g. SecureStorage unavailable) — continue with result
+        // Interceptor error — continue with result
       }
     }
 

@@ -7,54 +7,55 @@ edition = "2021"
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-aes-gcm = "0.10"
-base64 = "0.21"
-hmac = "0.12"
-sha2 = "0.10"
-ring = "0.17"
-# High-performance HTTP client dependencies
-reqwest = { version = "0.11", features = ["json", "rustls-tls", "gzip", "brotli", "deflate", "stream", "multipart"] }
-tokio = { version = "1.0", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-rustls = "0.21"
+aes-gcm    = "0.10"
+base64     = "0.21"
+hmac       = "0.12"
+sha2       = "0.10"
+ring       = "0.17"
+
+# HTTP client — default-features = false disables native-tls / openssl-sys,
+# which cannot cross-compile to Android. We use rustls exclusively.
+reqwest = { version = "0.11", default-features = false, features = [
+    "json",
+    "rustls-tls",          # TLS via rustls (no OpenSSL)
+    "gzip",
+    "brotli",
+    "deflate",
+    "stream",
+    "multipart",
+] }
+
+tokio              = { version = "1.0",  features = ["full"] }
+serde              = { version = "1.0",  features = ["derive"] }
+serde_json         = "1.0"
+rustls             = "0.21"
 rustls-native-certs = "0.6"
-hyper = { version = "0.14", features = ["full"] }
-hyper-rustls = "0.24"
-http = "0.2"
-futures = "0.3"
-dashmap = "5.5"
-lru = "0.12"
-bytes = "1.5"
-url = "2.4"
-once_cell = "1.19"
-parking_lot = "0.12"
-crossbeam = "0.8"
-rayon = "1.8"
-flate2 = "1.0"
-brotli = "3.4"
-zstd = "0.13"
-num_cpus = "1.16"
+hyper              = { version = "0.14", default-features = false, features = ["full"] }
+hyper-rustls       = { version = "0.24", default-features = false, features = ["http1", "http2", "native-tokio", "tls12"] }
+http               = "0.2"
+futures            = "0.3"
+dashmap            = "5.5"
+lru                = "0.12"
+bytes              = "1.5"
+url                = "2.4"
+once_cell          = "1.19"
+parking_lot        = "0.12"
+crossbeam          = "0.8"
+rayon              = "1.8"
+flate2             = "1.0"
+brotli             = "3.4"
+zstd               = "0.13"
+num_cpus           = "1.16"
 
 [profile.release]
 opt-level = 3
-lto = true
+lto       = true
 # Align ELF load segments to 16KB — required for Android 15+ (API 35) devices.
-# This makes the .so loadable on both 4KB and 16KB page-size kernels.
-# The Android linker enforces this from 2025 onwards for Google Play submissions.
+# Loadable on both 4KB and 16KB page-size kernels.
+# Google Play enforces this from 2025 onwards.
+
 [profile.release.build-override]
 opt-level = 3
 
-# Pass the page-size alignment flag through the linker script.
-# This is the Rust-side equivalent of -Wl,-z,max-page-size=16384.
-[target.aarch64-linux-android]
-rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
-
-[target.x86_64-linux-android]
-rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
-
-[target.armv7-linux-androideabi]
-rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
-
-[target.i686-linux-android]
-rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+# NOTE: target-specific rustflags live in .cargo/config.toml, not here.
+# Cargo silently ignores [target.*] rustflags defined in Cargo.toml.

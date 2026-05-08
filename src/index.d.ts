@@ -1,11 +1,3 @@
-export interface SecureStorageAPI {
-  setItem(key: string, value: any): Promise<void>;
-  getItem(key: string): Promise<any>;
-  removeItem(key: string): Promise<void>;
-  clear(): Promise<void>;
-}
-
-export const SecureStorage: SecureStorageAPI;
 export interface HttpRequestConfig {
   url?: string;
   method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
@@ -89,6 +81,7 @@ export class RustHttpClient {
   readonly interceptors: Readonly<RustHttpInterceptors>;
   
   request<T = any>(config: HttpRequestConfig): Promise<RustHttpResponse<T>>;
+  requestHttp<T = any>(config: HttpRequestConfig): Promise<RustHttpResponse<T>>;
   get<T = any>(url: string, config?: HttpRequestConfig): Promise<RustHttpResponse<T>>;
   post<T = any>(url: string, data?: any, config?: HttpRequestConfig): Promise<RustHttpResponse<T>>;
   put<T = any>(url: string, data?: any, config?: HttpRequestConfig): Promise<RustHttpResponse<T>>;

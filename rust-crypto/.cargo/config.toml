@@ -1,0 +1,30 @@
+# Android linker/ar paths are injected at build time via environment variables:
+#
+#   CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER
+#   CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER
+#   CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER
+#   CARGO_TARGET_I686_LINUX_ANDROID_LINKER
+#
+# These are set automatically by scripts/build-android.sh, which resolves the
+# NDK location from ANDROID_NDK_HOME, NDK_HOME, or the default SDK path.
+# You do NOT need to hardcode paths here.
+#
+# If you want to build manually without the script, export the vars yourself:
+#
+#   export ANDROID_NDK_HOME=/path/to/ndk
+#   bash scripts/build-android.sh
+#
+# Or with cargo-ndk (if installed):
+#   cargo ndk --target aarch64-linux-android --platform 24 -- build --release
+
+[target.aarch64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.x86_64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.armv7-linux-androideabi]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.i686-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
