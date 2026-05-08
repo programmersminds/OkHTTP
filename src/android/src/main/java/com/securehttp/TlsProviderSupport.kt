@@ -5,13 +5,15 @@ import android.util.Log
 import com.google.android.gms.common.GooglePlayServicesNotAvailableException
 import com.google.android.gms.common.GooglePlayServicesRepairableException
 import com.google.android.gms.security.ProviderInstaller
+import org.conscrypt.Conscrypt
 import java.security.KeyStore
+import java.security.Security
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
 internal data class TlsProviderState(
-    val providerInstallerAttempted: Boolean,
+    val conscryptEnabled: Boolean,
     val providerInstallerSucceeded: Boolean,
 )
 
@@ -27,11 +29,8 @@ internal object TlsProviderSupport {
         synchronized(this) {
             cachedState?.let { return it }
 
-            var providerInstallerAttempted = false
             var providerInstallerSucceeded = false
-
             try {
-                providerInstallerAttempted = true
                 ProviderInstaller.installIfNeeded(context)
                 providerInstallerSucceeded = true
                 Log.i(TAG, "ProviderInstaller completed successfully")
@@ -43,20 +42,62 @@ internal object TlsProviderSupport {
                 Log.w(TAG, "ProviderInstaller failed: ${e.message}")
             }
 
+            val conscryptEnabled = try {
+                val providerName = Conscrypt.newProvider().name
+                val existingProvider = Security.getProvider(providerName)
+                if (existingProvider == null) {
+                    Security.insertProviderAt(Conscrypt.newProvider(), 1)
+                } else {
+                    Security.removeProvider(providerName)
+                    Security.insertProviderAt(existingProvider, 1)
+                }
+                Log.i(TAG, "Conscrypt enabled")
+                true
+            } catch (e: Exception) {
+                Log.w(TAG, "Conscrypt activation failed: ${e.message}")
+                false
+            }
+
             return TlsProviderState(
-                providerInstallerAttempted = providerInstallerAttempted,
+                conscryptEnabled = conscryptEnabled,
                 providerInstallerSucceeded = providerInstallerSucceeded,
             ).also { cachedState = it }
         }
     }
 
-    fun buildTrustManager(): X509TrustManager {
-        val trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
-        trustManagerFactory.init(null as KeyStore?)
-        return trustManagerFactory.trustManagers.first { it is X509TrustManager } as X509TrustManager
+    fun buildTrustManager(useConscrypt: Boolean): X509TrustManager {
+        if (useConscrypt && Conscrypt.isAvailable()) {
+            try {
+                val provider = Security.getProvider(Conscrypt.newProvider().name) ?: Conscrypt.newProvider()
+                val tmf = TrustManagerFactory.getInstance(
+                    TrustManagerFactory.getDefaultAlgorithm(),
+                    provider,
+                )
+                tmf.init(null as KeyStore?)
+                val trustManager = tmf.trustManagers.firstOrNull { it is X509TrustManager }
+                if (trustManager != null) return trustManager as X509TrustManager
+            } catch (e: Exception) {
+                Log.w(TAG, "Conscrypt trust manager failed: ${e.message}")
+            }
+        }
+
+        val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+        tmf.init(null as KeyStore?)
+        return tmf.trustManagers.first { it is X509TrustManager } as X509TrustManager
     }
 
-    fun buildSslContext(trustManager: X509TrustManager): SSLContext {
+    fun buildSslContext(trustManager: X509TrustManager, useConscrypt: Boolean): SSLContext {
+        if (useConscrypt && Conscrypt.isAvailable()) {
+            try {
+                val provider = Security.getProvider(Conscrypt.newProvider().name) ?: Conscrypt.newProvider()
+                return SSLContext.getInstance("TLS", provider).also {
+                    it.init(null, arrayOf(trustManager), null)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Conscrypt SSLContext failed, falling back: ${e.message}")
+            }
+        }
+
         return SSLContext.getInstance("TLS").also {
             it.init(null, arrayOf(trustManager), null)
         }

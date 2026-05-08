@@ -2,7 +2,7 @@ module.exports = {
   dependency: {
     platforms: {
       android: {
-        sourceDir: './src/android',
+        sourceDir: './android',
         packageImportPath: 'import com.securehttp.SecureHttpPackage;',
         packageInstance: 'new SecureHttpPackage()',
       },

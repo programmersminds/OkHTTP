@@ -6,7 +6,7 @@
   "types": "src/index.d.ts",
   "react-native": {
     "android": {
-      "sourceDir": "src/android",
+      "sourceDir": "android",
       "packageImportPath": "import com.securehttp.SecureHttpPackage;",
       "packageInstance": "new SecureHttpPackage()"
     },
@@ -15,6 +15,7 @@
     }
   },
   "files": [
+    "android/**/*",
     "src/**/*",
     "react-native-secure-http.podspec",
     "react-native-config.js",
