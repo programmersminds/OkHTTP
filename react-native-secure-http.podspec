@@ -38,6 +38,10 @@ Pod::Spec.new do |s|
         fi
       SCRIPT
       :execution_position => :before_compile,
+      :input_files => [
+        "$(PODS_TARGET_SRCROOT)/src/ios/libs/libsecure_http_crypto_sim.a",
+        "$(PODS_TARGET_SRCROOT)/src/ios/libs/libsecure_http_crypto_device.a"
+      ],
       :output_files => ["$(PODS_TARGET_SRCROOT)/src/ios/libs/libsecure_http_crypto.a"]
     }
   ]

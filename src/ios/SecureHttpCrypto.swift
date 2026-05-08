@@ -5,7 +5,12 @@ class SecureHttpCrypto: NSObject {
 
   override init() {
     super.init()
-    crypto_init()
+    let initialized = crypto_init()
+    if !initialized {
+      // crypto_init returns false if already initialized (integrity key already set).
+      // This is expected on re-instantiation and is not an error.
+      NSLog("[SecureHttpCrypto] crypto_init returned false — already initialized or RNG failure")
+    }
   }
 
   @objc

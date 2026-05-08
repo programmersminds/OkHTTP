@@ -1,5 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
           package="com.securehttp">
     <application
-        android:usesCleartextTraffic="false" />
+        android:usesCleartextTraffic="false"
+        android:extractNativeLibs="false">
+        <!--
+          extractNativeLibs="false" tells the Android runtime to load .so files
+          directly from the APK/AAB without extracting them to disk first.
+          This is required for 16KB page-size alignment to work correctly.
+          The .so files must be stored uncompressed in the APK (handled by
+          packagingOptions.jniLibs.useLegacyPackaging = false in build.gradle).
+        -->
+    </application>
 </manifest>

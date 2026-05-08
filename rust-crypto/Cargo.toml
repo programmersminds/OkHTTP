@@ -39,3 +39,22 @@ num_cpus = "1.16"
 [profile.release]
 opt-level = 3
 lto = true
+# Align ELF load segments to 16KB — required for Android 15+ (API 35) devices.
+# This makes the .so loadable on both 4KB and 16KB page-size kernels.
+# The Android linker enforces this from 2025 onwards for Google Play submissions.
+[profile.release.build-override]
+opt-level = 3
+
+# Pass the page-size alignment flag through the linker script.
+# This is the Rust-side equivalent of -Wl,-z,max-page-size=16384.
+[target.aarch64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.x86_64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.armv7-linux-androideabi]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.i686-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
