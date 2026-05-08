@@ -155,6 +155,7 @@ class SecureHttpCryptoModule(reactContext: ReactApplicationContext) :
         }
     }
 
+    @Suppress("DEPRECATION")
     override fun onCatalystInstanceDestroy() {
         super.onCatalystInstanceDestroy()
         scope.cancel()

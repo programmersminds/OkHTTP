@@ -14,6 +14,14 @@
       "podspecPath": "react-native-secure-http.podspec"
     }
   },
+  "files": [
+    "src/**/*",
+    "react-native-secure-http.podspec",
+    "react-native-config.js",
+    "README.md",
+    "LICENSE*",
+    "package.json"
+  ],
 
   "scripts": {
     "test": "echo \"No tests yet\"",

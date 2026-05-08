@@ -9,31 +9,10 @@ android {
         minSdkVersion 24          // 16KB page size support requires API 24+
         targetSdkVersion 34
 
-        // ---------------------------------------------------------------
-        // 16KB page alignment — required by Google Play from 2025 onwards
-        // for devices running Android 15+ (API 35).
-        // This tells the linker to align ELF load segments to 16KB so the
-        // .so can be loaded on kernels that use 16KB memory pages.
-        // ---------------------------------------------------------------
-        externalNativeBuild {
-            cmake {
-                arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
-                          "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384"
-            }
-        }
-
         ndk {
             // Only ship ABIs that support 16KB pages.
             // x86 / x86_64 are emulator-only and do not need 16KB alignment.
             abiFilters "arm64-v8a", "x86_64"
-        }
-    }
-
-    // Point to the CMakeLists that builds / links the Rust .so
-    externalNativeBuild {
-        cmake {
-            path   "CMakeLists.txt"
-            version "3.22.1"
         }
     }
 
