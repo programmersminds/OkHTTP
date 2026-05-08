@@ -1,3 +1,14 @@
 node_modules/
 *.log
 .DS_Store
+
+# Rust build output
+rust-crypto/target/
+
+# Android/Gradle generated output
+src/android/.cxx/
+src/android/build/
+.gradle/
+
+# Pack artifacts
+*.tgz
