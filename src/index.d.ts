@@ -80,6 +80,11 @@ export namespace createSecureHttpClient {
   let isCancel: typeof SecureHttpClient.isCancel;
 }
 
+export function createHermesClient(config?: HttpRequestConfig): SecureHttpInstance;
+export namespace createHermesClient {
+  let isCancel: typeof SecureHttpClient.isCancel;
+}
+
 export const isCancel: typeof SecureHttpClient.isCancel;
 export const tls13Axios: SecureHttpInstance;
 

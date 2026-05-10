@@ -90,6 +90,9 @@ export const tls13Axios = createSecureHttpClient({
   },
 });
 
+export const createHermesClient = createSecureHttpClient;
+createHermesClient.isCancel = isCancel;
+
 export { createSecureHttpClient, isCancel };
 
 export default createSecureHttpClient;
