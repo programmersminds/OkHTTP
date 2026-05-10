@@ -19,7 +19,10 @@ static REQUEST_LOG: Mutex<Option<Vec<(String, u64)>>> = Mutex::new(None);
 static INTEGRITY_KEY: Mutex<Option<[u8; 32]>> = Mutex::new(None);
 
 #[no_mangle]
-pub extern "C" fn crypto_init() -> bool {
+pub extern "C" fn Java_com_securehttp_SecureHttpCryptoModule_crypto_1init(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+) -> bool {
     let mut integrity = INTEGRITY_KEY.lock().unwrap();
     if integrity.is_none() {
         let rng = SystemRandom::new();
@@ -33,7 +36,12 @@ pub extern "C" fn crypto_init() -> bool {
 }
 
 #[no_mangle]
-pub extern "C" fn crypto_encrypt(plaintext: *const c_char, key: *const c_char) -> *mut c_char {
+pub extern "C" fn Java_com_securehttp_SecureHttpCryptoModule_crypto_1encrypt(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+    plaintext: *const c_char,
+    key: *const c_char,
+) -> *mut c_char {
     if !verify_integrity() {
         return std::ptr::null_mut();
     }
@@ -55,7 +63,12 @@ pub extern "C" fn crypto_encrypt(plaintext: *const c_char, key: *const c_char) -
 }
 
 #[no_mangle]
-pub extern "C" fn crypto_decrypt(ciphertext: *const c_char, key: *const c_char) -> *mut c_char {
+pub extern "C" fn Java_com_securehttp_SecureHttpCryptoModule_crypto_1decrypt(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+    ciphertext: *const c_char,
+    key: *const c_char,
+) -> *mut c_char {
     if !verify_integrity() {
         return std::ptr::null_mut();
     }
@@ -77,7 +90,9 @@ pub extern "C" fn crypto_decrypt(ciphertext: *const c_char, key: *const c_char) 
 }
 
 #[no_mangle]
-pub extern "C" fn crypto_sign(
+pub extern "C" fn Java_com_securehttp_SecureHttpCryptoModule_crypto_1sign(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
     data: *const c_char,
     timestamp: i64,
     key: *const c_char,
@@ -99,7 +114,12 @@ pub extern "C" fn crypto_sign(
 }
 
 #[no_mangle]
-pub extern "C" fn crypto_store_key(key: *const c_char, value: *const c_char) -> bool {
+pub extern "C" fn Java_com_securehttp_SecureHttpCryptoModule_crypto_1store_1key(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+    key: *const c_char,
+    value: *const c_char,
+) -> bool {
     if !verify_integrity() {
         return false;
     }
@@ -122,7 +142,11 @@ pub extern "C" fn crypto_store_key(key: *const c_char, value: *const c_char) -> 
 }
 
 #[no_mangle]
-pub extern "C" fn crypto_get_key(key: *const c_char) -> *mut c_char {
+pub extern "C" fn Java_com_securehttp_SecureHttpCryptoModule_crypto_1get_1key(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+    key: *const c_char,
+) -> *mut c_char {
     if !verify_integrity() {
         return std::ptr::null_mut();
     }
@@ -142,7 +166,11 @@ pub extern "C" fn crypto_get_key(key: *const c_char) -> *mut c_char {
 }
 
 #[no_mangle]
-pub extern "C" fn crypto_remove_key(key: *const c_char) -> bool {
+pub extern "C" fn Java_com_securehttp_SecureHttpCryptoModule_crypto_1remove_1key(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+    key: *const c_char,
+) -> bool {
     if !verify_integrity() {
         return false;
     }
@@ -159,7 +187,10 @@ pub extern "C" fn crypto_remove_key(key: *const c_char) -> bool {
 }
 
 #[no_mangle]
-pub extern "C" fn crypto_clear_storage() -> bool {
+pub extern "C" fn Java_com_securehttp_SecureHttpCryptoModule_crypto_1clear_1storage(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+) -> bool {
     if !verify_integrity() {
         return false;
     }
@@ -174,7 +205,10 @@ pub extern "C" fn crypto_clear_storage() -> bool {
 }
 
 #[no_mangle]
-pub extern "C" fn crypto_generate_key() -> *mut c_char {
+pub extern "C" fn Java_com_securehttp_SecureHttpCryptoModule_crypto_1generate_1key(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+) -> *mut c_char {
     if !verify_integrity() {
         return std::ptr::null_mut();
     }
@@ -190,25 +224,38 @@ pub extern "C" fn crypto_generate_key() -> *mut c_char {
 }
 
 #[no_mangle]
-pub extern "C" fn crypto_verify_integrity() -> bool {
+pub extern "C" fn Java_com_securehttp_SecureHttpCryptoModule_crypto_1verify_1integrity(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+) -> bool {
     verify_integrity()
 }
 
 #[no_mangle]
-pub extern "C" fn crypto_free_string(s: *mut c_char) {
+pub extern "C" fn Java_com_securehttp_SecureHttpCryptoModule_crypto_1free_1string(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+    s: *mut c_char,
+) {
     if !s.is_null() {
         unsafe { let _ = CString::from_raw(s); };
     }
 }
 
 // HTTP client stubs - these are handled by JavaScript fetch fallback
+// JNI naming convention: Java_<package>_<class>_<method>
 #[no_mangle]
-pub extern "C" fn http_client_init() -> bool {
+pub extern "C" fn Java_com_securehttp_SecureHttpCryptoModule_http_1client_1init(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+) -> bool {
     true
 }
 
 #[no_mangle]
-pub extern "C" fn http_execute_request(
+pub extern "C" fn Java_com_securehttp_SecureHttpCryptoModule_http_1execute_1request(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
     _config_json: *const c_char,
     _request_json: *const c_char,
 ) -> *mut c_char {
@@ -217,7 +264,9 @@ pub extern "C" fn http_execute_request(
 }
 
 #[no_mangle]
-pub extern "C" fn http_execute_batch_requests(
+pub extern "C" fn Java_com_securehttp_SecureHttpCryptoModule_http_1execute_1batch_1requests(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
     _config_json: *const c_char,
     _requests_json: *const c_char,
 ) -> *mut c_char {
@@ -226,27 +275,45 @@ pub extern "C" fn http_execute_batch_requests(
 }
 
 #[no_mangle]
-pub extern "C" fn http_get_metrics(_endpoint: *const c_char) -> *mut c_char {
+pub extern "C" fn Java_com_securehttp_SecureHttpCryptoModule_http_1get_1metrics(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+    _endpoint: *const c_char,
+) -> *mut c_char {
     std::ptr::null_mut()
 }
 
 #[no_mangle]
-pub extern "C" fn http_clear_cache() -> bool {
+pub extern "C" fn Java_com_securehttp_SecureHttpCryptoModule_http_1clear_1cache(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+) -> bool {
     true
 }
 
 #[no_mangle]
-pub extern "C" fn http_get_cache_stats() -> *mut c_char {
+pub extern "C" fn Java_com_securehttp_SecureHttpCryptoModule_http_1get_1cache_1stats(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+) -> *mut c_char {
     std::ptr::null_mut()
 }
 
 #[no_mangle]
-pub extern "C" fn http_warmup_connections(_base_urls_json: *const c_char) -> bool {
+pub extern "C" fn Java_com_securehttp_SecureHttpCryptoModule_http_1warmup_1connections(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+    _base_urls_json: *const c_char,
+) -> bool {
     true
 }
 
 #[no_mangle]
-pub extern "C" fn http_free_string(s: *mut c_char) {
+pub extern "C" fn Java_com_securehttp_SecureHttpCryptoModule_http_1free_1string(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+    s: *mut c_char,
+) {
     if !s.is_null() {
         unsafe { let _ = CString::from_raw(s); };
     }
