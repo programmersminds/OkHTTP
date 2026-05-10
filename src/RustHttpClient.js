@@ -169,4 +169,23 @@ export function createHermesClient(config = {}) {
   return instance;
 }
 
-export default createHermesClient();
+let _defaultClient;
+try {
+  _defaultClient = createHermesClient();
+} catch (e) {
+  console.warn('[SecureHttp] Failed to create default client:', e?.message);
+  // Provide a stub so callers get a clear error rather than "Cannot read property of undefined"
+  _defaultClient = {
+    defaults: {},
+    interceptors: { request: { use() {}, push() {}, eject() {} }, response: { use() {}, push() {}, eject() {} } },
+    create: (cfg) => createHermesClient(cfg),
+    request: () => Promise.reject(new Error('[SecureHttp] Client failed to initialize')),
+    get:     () => Promise.reject(new Error('[SecureHttp] Client failed to initialize')),
+    post:    () => Promise.reject(new Error('[SecureHttp] Client failed to initialize')),
+    put:     () => Promise.reject(new Error('[SecureHttp] Client failed to initialize')),
+    patch:   () => Promise.reject(new Error('[SecureHttp] Client failed to initialize')),
+    delete:  () => Promise.reject(new Error('[SecureHttp] Client failed to initialize')),
+  };
+}
+
+export default _defaultClient;
