@@ -108,6 +108,8 @@ function createInterceptorManager() {
 // ─── Instance factory ─────────────────────────────────────────────────────────
 
 export function createHermesClient(config = {}) {
+  if (typeof config !== 'object' || config === null) config = {};
+
   const defaults = {
     baseURL: '',
     timeout: 30000,
@@ -154,16 +156,90 @@ export function createHermesClient(config = {}) {
     return response;
   }
 
+  // ── Per-endpoint metrics store ────────────────────────────────────────────
+  const _metrics = {};
+
+  function _recordMetric(endpoint, durationMs, success) {
+    if (!_metrics[endpoint]) {
+      _metrics[endpoint] = { totalRequests: 0, successfulRequests: 0, failedRequests: 0, totalTime: 0, avgResponseTime: 0, cacheHits: 0, cacheMisses: 0 };
+    }
+    const m = _metrics[endpoint];
+    m.totalRequests++;
+    m.totalTime += durationMs;
+    m.avgResponseTime = m.totalTime / m.totalRequests;
+    if (success) m.successfulRequests++; else m.failedRequests++;
+  }
+
+  async function requestWithMetrics(reqConfig) {
+    const endpoint = reqConfig.url || '';
+    const start = Date.now();
+    try {
+      const res = await request(reqConfig);
+      _recordMetric(endpoint, Date.now() - start, true);
+      return res;
+    } catch (err) {
+      _recordMetric(endpoint, Date.now() - start, false);
+      throw err;
+    }
+  }
+
   const instance = {
     defaults,
     interceptors,
-    request,
-    get:    (url, cfg = {})       => request({ ...cfg, url, method: 'GET' }),
-    post:   (url, data, cfg = {}) => request({ ...cfg, url, method: 'POST',   data }),
-    put:    (url, data, cfg = {}) => request({ ...cfg, url, method: 'PUT',    data }),
-    patch:  (url, data, cfg = {}) => request({ ...cfg, url, method: 'PATCH',  data }),
-    delete: (url, cfg = {})       => request({ ...cfg, url, method: 'DELETE' }),
-    create: (cfg = {})            => createHermesClient({ ...defaults, ...cfg }),
+    request:  requestWithMetrics,
+    get:      (url, cfg = {})       => requestWithMetrics({ ...cfg, url, method: 'GET' }),
+    post:     (url, data, cfg = {}) => requestWithMetrics({ ...cfg, url, method: 'POST',   data }),
+    put:      (url, data, cfg = {}) => requestWithMetrics({ ...cfg, url, method: 'PUT',    data }),
+    patch:    (url, data, cfg = {}) => requestWithMetrics({ ...cfg, url, method: 'PATCH',  data }),
+    delete:   (url, cfg = {})       => requestWithMetrics({ ...cfg, url, method: 'DELETE' }),
+    create:   (cfg = {})            => createHermesClient({ ...defaults, ...cfg }),
+
+    // ── Metrics API (matches type definitions) ──────────────────────────────
+    getMetrics(endpoint) {
+      if (endpoint) return _metrics[endpoint] ?? null;
+      return null;
+    },
+    getAllMetrics() {
+      return { ..._metrics };
+    },
+
+    // ── Benchmark API ───────────────────────────────────────────────────────
+    async benchmark(url, iterations = 100) {
+      const times = [];
+      let successes = 0;
+      for (let i = 0; i < iterations; i++) {
+        const start = Date.now();
+        try {
+          await requestWithMetrics({ url, method: 'GET' });
+          successes++;
+        } catch (_) { /* count as failure */ }
+        times.push(Date.now() - start);
+      }
+      const total = times.reduce((a, b) => a + b, 0);
+      return {
+        iterations,
+        totalTime:   total,
+        avgTime:     total / iterations,
+        minTime:     Math.min(...times),
+        maxTime:     Math.max(...times),
+        successRate: successes / iterations,
+        throughput:  iterations / (total / 1000),
+      };
+    },
+
+    // ── Cache stubs (native module handles real caching) ───────────────────
+    clearCache() {
+      if (SecureHttpCryptoModule?.httpClearCache) {
+        SecureHttpCryptoModule.httpClearCache().catch(() => {});
+      }
+      return true;
+    },
+    getCacheStats() {
+      return null;
+    },
+
+    // ── Custom headers store (used by app for authtoken) ───────────────────
+    _customHeaders: {},
   };
 
   return instance;
@@ -178,7 +254,13 @@ try {
   _defaultClient = {
     defaults: {},
     interceptors: { request: { use() {}, push() {}, eject() {} }, response: { use() {}, push() {}, eject() {} } },
-    create: (cfg) => createHermesClient(cfg),
+    _customHeaders: {},
+    create:      (cfg) => createHermesClient(cfg),
+    getMetrics:  () => null,
+    getAllMetrics:() => ({}),
+    clearCache:  () => true,
+    getCacheStats: () => null,
+    benchmark:   async () => ({ iterations: 0, totalTime: 0, avgTime: 0, minTime: 0, maxTime: 0, successRate: 0, throughput: 0 }),
     request: () => Promise.reject(new Error('[SecureHttp] Client failed to initialize')),
     get:     () => Promise.reject(new Error('[SecureHttp] Client failed to initialize')),
     post:    () => Promise.reject(new Error('[SecureHttp] Client failed to initialize')),
