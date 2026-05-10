@@ -240,7 +240,8 @@ class SecureHttpCryptoModule(reactContext: ReactApplicationContext) :
             try {
                 System.loadLibrary("secure_http_crypto")
             } catch (e: UnsatisfiedLinkError) {
-                // Library not available; JS side will fall back when methods reject.
+                // Log the error for debugging
+                android.util.Log.w("SecureHttpCrypto", "Failed to load native library: ${e.message}")
             }
         }
     }

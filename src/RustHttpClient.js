@@ -203,29 +203,7 @@ export function createHermesClient(config = {}) {
       return { ..._metrics };
     },
 
-    // ── Benchmark API ───────────────────────────────────────────────────────
-    async benchmark(url, iterations = 100) {
-      const times = [];
-      let successes = 0;
-      for (let i = 0; i < iterations; i++) {
-        const start = Date.now();
-        try {
-          await requestWithMetrics({ url, method: 'GET' });
-          successes++;
-        } catch (_) { /* count as failure */ }
-        times.push(Date.now() - start);
-      }
-      const total = times.reduce((a, b) => a + b, 0);
-      return {
-        iterations,
-        totalTime:   total,
-        avgTime:     total / iterations,
-        minTime:     Math.min(...times),
-        maxTime:     Math.max(...times),
-        successRate: successes / iterations,
-        throughput:  iterations / (total / 1000),
-      };
-    },
+
 
     // ── Cache stubs (native module handles real caching) ───────────────────
     clearCache() {
@@ -260,7 +238,6 @@ try {
     getAllMetrics:() => ({}),
     clearCache:  () => true,
     getCacheStats: () => null,
-    benchmark:   async () => ({ iterations: 0, totalTime: 0, avgTime: 0, minTime: 0, maxTime: 0, successRate: 0, throughput: 0 }),
     request: () => Promise.reject(new Error('[SecureHttp] Client failed to initialize')),
     get:     () => Promise.reject(new Error('[SecureHttp] Client failed to initialize')),
     post:    () => Promise.reject(new Error('[SecureHttp] Client failed to initialize')),

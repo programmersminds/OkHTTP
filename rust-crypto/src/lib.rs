@@ -12,9 +12,6 @@ use std::os::raw::c_char;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-mod http_client;
-pub use http_client::*;
-
 type HmacSha256 = Hmac<Sha256>;
 
 static STORAGE: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
@@ -199,6 +196,57 @@ pub extern "C" fn crypto_verify_integrity() -> bool {
 
 #[no_mangle]
 pub extern "C" fn crypto_free_string(s: *mut c_char) {
+    if !s.is_null() {
+        unsafe { let _ = CString::from_raw(s); };
+    }
+}
+
+// HTTP client stubs - these are handled by JavaScript fetch fallback
+#[no_mangle]
+pub extern "C" fn http_client_init() -> bool {
+    true
+}
+
+#[no_mangle]
+pub extern "C" fn http_execute_request(
+    _config_json: *const c_char,
+    _request_json: *const c_char,
+) -> *mut c_char {
+    // HTTP requests are handled by JavaScript fetch fallback
+    std::ptr::null_mut()
+}
+
+#[no_mangle]
+pub extern "C" fn http_execute_batch_requests(
+    _config_json: *const c_char,
+    _requests_json: *const c_char,
+) -> *mut c_char {
+    // Batch requests are handled by JavaScript fetch fallback
+    std::ptr::null_mut()
+}
+
+#[no_mangle]
+pub extern "C" fn http_get_metrics(_endpoint: *const c_char) -> *mut c_char {
+    std::ptr::null_mut()
+}
+
+#[no_mangle]
+pub extern "C" fn http_clear_cache() -> bool {
+    true
+}
+
+#[no_mangle]
+pub extern "C" fn http_get_cache_stats() -> *mut c_char {
+    std::ptr::null_mut()
+}
+
+#[no_mangle]
+pub extern "C" fn http_warmup_connections(_base_urls_json: *const c_char) -> bool {
+    true
+}
+
+#[no_mangle]
+pub extern "C" fn http_free_string(s: *mut c_char) {
     if !s.is_null() {
         unsafe { let _ = CString::from_raw(s); };
     }
