@@ -13,9 +13,11 @@ export interface HttpRequestConfig {
   headers?: Record<string, string>;
   data?: any;
   timeout?: number;
-  params?: Record<string, string>;
+  params?: Record<string, string | number | boolean | Array<string | number | boolean>>;
   signal?: AbortSignal;
   enableCache?: boolean;
+  cryptoKey?: string | null;
+  enableCrypto?: boolean;
 }
 
 export interface RustHttpConfig {
@@ -190,26 +192,31 @@ export interface HttpResponse<T = any> {
 }
 
 export interface HttpInterceptors {
-  request: Array<
-    (
-      config: HttpRequestConfig,
-    ) => HttpRequestConfig | Promise<HttpRequestConfig>
-  >;
-  response: Array<
-    (response: HttpResponse) => HttpResponse | Promise<HttpResponse>
-  >;
-  error: Array<(error: any) => Promise<any>>;
+  request: HttpInterceptorManager<HttpRequestConfig>;
+  response: HttpInterceptorManager<HttpResponse>;
+  error: HttpInterceptorManager<any>;
+}
+
+export interface SecureHttpDefaults {
+  baseURL: string;
+  headers: Record<string, string>;
+  timeout: number;
+  cryptoKey: string | null;
+  enableCrypto: boolean;
 }
 
 export class SecureHttpClient {
   baseURL: string;
   headers: Record<string, string>;
   timeout: number;
+  cryptoKey: string | null;
+  enableCrypto: boolean;
+  defaults: SecureHttpDefaults;
   interceptors: HttpInterceptors;
 
   constructor(config?: HttpRequestConfig);
 
-  create(config?: HttpRequestConfig): SecureHttpClient;
+  create(config?: HttpRequestConfig): SecureHttpInstance;
   static isCancel(error: any): boolean;
   isCancel(error: any): boolean;
 
@@ -239,6 +246,27 @@ export class SecureHttpClient {
   ): Promise<HttpResponse<T>>;
 }
 
+export interface SecureHttpInstance {
+  <T = any>(config: HttpRequestConfig): Promise<HttpResponse<T>>;
+  request<T = any>(config: HttpRequestConfig): Promise<HttpResponse<T>>;
+  get<T = any>(url: string, config?: HttpRequestConfig): Promise<HttpResponse<T>>;
+  post<T = any>(url: string, data?: any, config?: HttpRequestConfig): Promise<HttpResponse<T>>;
+  put<T = any>(url: string, data?: any, config?: HttpRequestConfig): Promise<HttpResponse<T>>;
+  delete<T = any>(url: string, config?: HttpRequestConfig): Promise<HttpResponse<T>>;
+  patch<T = any>(url: string, data?: any, config?: HttpRequestConfig): Promise<HttpResponse<T>>;
+  create(config?: HttpRequestConfig): SecureHttpInstance;
+  defaults: SecureHttpDefaults;
+  interceptors: HttpInterceptors;
+  isCancel(error: any): boolean;
+  raw: SecureHttpClient;
+}
+
+export function createSecureHttpClient(config?: HttpRequestConfig): SecureHttpInstance;
+export namespace createSecureHttpClient {
+  let isCancel: typeof SecureHttpClient.isCancel;
+}
+export const isCancel: typeof SecureHttpClient.isCancel;
+
 export function isTLSModuleAvailable(): boolean;
 
 export function updateSecurityProvider(): Promise<string>;
@@ -258,24 +286,7 @@ export function forceTLS13(): Promise<string>;
 
 export function initializeTLS13Axios(): Promise<void>;
 
-export function initializeMonitoring(
-  config: MonitoringConfig,
-): MonitoringManager;
-
-export function getMonitoring(): MonitoringManager | null;
-
-export function isCancel(error: any): boolean;
-
-export interface TLS13Axios extends SecureHttpClient {
-  create(config?: HttpRequestConfig): SecureHttpClient;
-  isCancel(error: any): boolean;
-}
-
-export const tls13Axios: TLS13Axios;
-
-export function createSecureHttpClient(
-  config?: HttpRequestConfig,
-): SecureHttpClient;
+export const tls13Axios: SecureHttpInstance;
 
 export default createSecureHttpClient;
 
